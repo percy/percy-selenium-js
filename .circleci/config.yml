@@ -7,9 +7,12 @@ jobs:
       - checkout
       - run:
           name: Install dependencies
-          command: yarn
+          command: yarn --ignore-engines
       - run:
-          name: Run tests with Percy
+          name: Install selenium-webdriver
+          command: yarn add selenium-webdriver@3.6.0
+      - run:
+          name: Run Node 8 tests
           command: yarn test
   node_10:
     docker:
@@ -20,8 +23,8 @@ jobs:
           name: Install dependencies
           command: yarn
       - run:
-          name: Run tests (without Percy)
-          command: PERCY_ENABLE=0 yarn test
+          name: Run Node 10 tests
+          command: yarn test
   release:
     docker:
       - image: circleci/node:10
