@@ -1,0 +1,23 @@
+{
+  "name": "@percy/seleniumjs",
+  "description": "Selenium.js client library for visual regression testing with Percy",
+  "version": "0.1.0",
+  "main": "index.js",
+  "license": "MIT",
+  "author": "Perceptual Inc.",
+  "repository": "https://github.com/percy/percy-seleniumjs",
+  "keywords": [
+    "selenium",
+    "percy",
+    "visual testing"
+  ],
+  "scripts": {
+    "test": "percy exec -- node tests/index.js"
+  },
+  "dependencies": {
+    "@percy/agent": "~0"
+  },
+  "devDependencies": {
+    "selenium-webdriver": "^4.0.0-alpha.5"
+  }
+}
