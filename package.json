@@ -18,6 +18,22 @@
     "@percy/agent": "~0"
   },
   "devDependencies": {
+    "@semantic-release/changelog": "^3.0.4",
+    "@semantic-release/git": "^7.0.16",
     "selenium-webdriver": "^4.0.0-alpha.5"
+  },
+  "release": {
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      [
+        "@semantic-release/changelog",
+        {
+          "changelogFile": "CHANGELOG.md"
+        }
+      ],
+      "@semantic-release/npm",
+      "@semantic-release/git"
+    ]
   }
 }
