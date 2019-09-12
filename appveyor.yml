@@ -2,15 +2,15 @@
 environment:
   matrix:
     - nodejs_version: "8"
-    - nodejs_version: "10"
       PERCY_ENABLE: 0
+    - nodejs_version: "10"
 
 # Install scripts. (runs after repo cloning)
 install:
   # Get the latest stable version of Node.js
   - ps: Install-Product node $env:nodejs_version
   # install modules
-  - yarn
+  - yarn --ignore-engines
 
 # Post-install test scripts.
 test_script:
