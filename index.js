@@ -39,13 +39,13 @@ module.exports = async function percySnapshot(browser, name, options) {
   let domSnapshot;
 
   try {
-    domSnapshot = await browser.executeScript(function() {
+    domSnapshot = await browser.executeScript(function(name, options) {
       var percyAgentClient = new PercyAgent({
         handleAgentCommunication: false
       });
 
-      return percyAgentClient.snapshot("not used");
-    });
+      return percyAgentClient.snapshot(name, options);
+    }, name,options);
   } catch (err) {
     console.log(
       `[percy] Could not take snapshot of the DOM for '${name}': ${err}`
