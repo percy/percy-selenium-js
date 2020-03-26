@@ -1,8 +1,8 @@
 version: 2.1
 jobs:
-  node_8_with_percy:
+  test_percy:
     docker:
-      - image: circleci/node:8-browsers
+      - image: circleci/node:10-browsers
     steps:
       - checkout
       - run:
@@ -12,22 +12,24 @@ jobs:
           name: Install selenium-webdriver
           command: yarn add selenium-webdriver@3.6.0
       - run:
-          name: Run Node 8 tests
+          name: Run Percy Tests
           command: yarn test
-  node_10:
+  test:
     docker:
-      - image: circleci/node:10-browsers
+      - image: circleci/node:12-browsers
+    environment:
+      PERCY_ENABLE: 0
     steps:
       - checkout
       - run:
           name: Install dependencies
           command: yarn
       - run:
-          name: Run Node 10 tests
+          name: Run tests
           command: yarn test
   release:
     docker:
-      - image: circleci/node:10
+      - image: circleci/node:12
     steps:
       - checkout
       - run: yarn
@@ -36,9 +38,9 @@ workflows:
   version: 2.1
   test_and_release:
     jobs:
-      - node_8_with_percy
-      - node_10
+      - test
+      - test_percy
       - release:
           requires:
-            - node_10
-            - node_8_with_percy
+            - test
+            - test_percy
