@@ -1,7 +1,7 @@
 {
   "name": "@percy/seleniumjs",
   "description": "Selenium.js client library for visual regression testing with Percy",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "main": "index.js",
   "license": "MIT",
   "author": "Perceptual Inc.",
