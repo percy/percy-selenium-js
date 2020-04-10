@@ -1,20 +1,14 @@
-const pkg = require("./package.json");
-const seleniumPkg = require("selenium-webdriver/package.json");
-const { readFileSync } = require("fs");
-const {
-  agentJsFilename,
-  isAgentRunning,
-  postSnapshot
-} = require("@percy/agent/dist/utils/sdk-utils");
+const pkg = require('./package.json');
+const seleniumPkg = require('selenium-webdriver/package.json');
+const { readFileSync } = require('fs');
+const { agentJsFilename, isAgentRunning, postSnapshot } = require('@percy/agent/dist/utils/sdk-utils');
 
 const CLIENT_INFO = `${pkg.name}/${pkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 
 module.exports = async function percySnapshot(browser, name, options) {
   if (!browser) {
-    throw new Error(
-      "An instance of the selenium driver object must be provided."
-    );
+    throw new Error('An instance of the selenium driver object must be provided.');
   }
 
   if (!name) {
@@ -26,9 +20,7 @@ module.exports = async function percySnapshot(browser, name, options) {
 
     await browser.executeScript(agentJSString);
   } catch (err) {
-    console.log(
-      `[percy] Could not inject agent JS for snapshot '${name}', maybe due to stringent CSPs: ${err}`
-    );
+    console.log(`[percy] Could not inject agent JS for snapshot '${name}', maybe due to stringent CSPs: ${err}`);
     return;
   }
 
@@ -39,17 +31,13 @@ module.exports = async function percySnapshot(browser, name, options) {
   let domSnapshot;
 
   try {
-    domSnapshot = await browser.executeScript(function(name, options) {
-      var percyAgentClient = new PercyAgent({
+    domSnapshot = await browser.executeScript(function(options) {
+      return new window.PercyAgent({
         handleAgentCommunication: false
-      });
-
-      return percyAgentClient.snapshot(name, options);
-    }, name,options);
+      }).domSnapshot(document, options);
+    }, options);
   } catch (err) {
-    console.log(
-      `[percy] Could not take snapshot of the DOM for '${name}': ${err}`
-    );
+    console.log(`[percy] Could not take snapshot of the DOM for '${name}': ${err}`);
     return;
   }
 
