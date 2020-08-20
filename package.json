@@ -1,6 +1,6 @@
 {
   "name": "@percy/seleniumjs",
-  "description": "Selenium.js client library for visual regression testing with Percy",
+  "description": "Selenium.js client library for visual testing with Percy",
   "version": "0.1.1",
   "main": "index.js",
   "license": "MIT",
@@ -11,13 +11,24 @@
     "percy",
     "visual testing"
   ],
+  "main": "index.js",
+  "types": "types/index.d.ts",
+  "files": [
+    "index.js",
+    "types/index.d.ts"
+  ],
   "scripts": {
     "test": "percy exec -- node tests/index.js"
   },
   "dependencies": {
-    "@percy/agent": "~0"
+    "node-fetch": "^2.6.0"
+  },
+  "peerDependencies": {
+    "@percy/cli": ">=1",
+    "selenium-webdriver": ">=3"
   },
   "devDependencies": {
+    "@percy/cli": "^1.0.0-beta.14",
     "@semantic-release/changelog": "^3.0.4",
     "@semantic-release/git": "^7.0.16",
     "selenium-webdriver": "^4.0.0-alpha.5"
