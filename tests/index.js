@@ -23,7 +23,7 @@ const percySnapshot = require("../index.js");
     await passingOptions({ enableJavaScript: true });
 
     await passingOptions({
-      percyCSS: `body { background-color: purple; }`
+      percyCSS: 'body { background-color: purple; }'
     });
   } finally {
     await driver.quit();
