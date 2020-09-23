@@ -30,8 +30,6 @@
   },
   "devDependencies": {
     "@percy/cli": "^1.0.0-beta.14",
-    "@semantic-release/changelog": "^3.0.4",
-    "@semantic-release/git": "^7.0.16",
     "eslint": "^7.9.0",
     "eslint-config-standard": "^14.1.1",
     "eslint-plugin-import": "^2.22.0",
@@ -39,19 +37,5 @@
     "eslint-plugin-promise": "^4.2.1",
     "eslint-plugin-standard": "^4.0.1",
     "selenium-webdriver": "^4.0.0-alpha.5"
-  },
-  "release": {
-    "plugins": [
-      "@semantic-release/commit-analyzer",
-      "@semantic-release/release-notes-generator",
-      [
-        "@semantic-release/changelog",
-        {
-          "changelogFile": "CHANGELOG.md"
-        }
-      ],
-      "@semantic-release/npm",
-      "@semantic-release/git"
-    ]
   }
 }
