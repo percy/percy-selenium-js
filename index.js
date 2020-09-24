@@ -43,6 +43,7 @@ module.exports = async function percySnapshot(browser, name, options) {
     );
 
     // Serialize and capture the DOM
+    /* istanbul ignore next: no instrumenting injected code */
     let domSnapshot = await browser.executeScript(options => {
       /* eslint-disable-next-line no-undef */
       return PercyDOM.serialize(options);
