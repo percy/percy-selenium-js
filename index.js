@@ -31,7 +31,7 @@ async function isPercyEnabled() {
 };
 
 // Take a DOM snapshot and post it to the snapshot endpoint
-module.exports = async function percySnapshot(browser, name, options) {
+async function percySnapshot(browser, name, options) {
   if (!browser) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
   if (!(await isPercyEnabled())) return;
@@ -70,3 +70,6 @@ module.exports = async function percySnapshot(browser, name, options) {
     log.error(err);
   }
 };
+
+module.exports = percySnapshot;
+module.exports.isPercyEnabled = isPercyEnabled;

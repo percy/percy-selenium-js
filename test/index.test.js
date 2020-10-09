@@ -3,9 +3,7 @@ const webdriver = require('selenium-webdriver');
 const firefox = require('selenium-webdriver/firefox');
 const stdio = require('@percy/logger/test/helper');
 const createTestServer = require('@percy/core/test/helpers/server');
-
-// required before each test to reset healthcheck result
-let percySnapshot;
+const percySnapshot = require('..');
 
 describe('percySnapshot', () => {
   let driver, percyServer, testServer;
@@ -25,9 +23,8 @@ describe('percySnapshot', () => {
   });
 
   beforeEach(async () => {
-    // re-require to clear previous healthcheck result
-    delete require.cache[require.resolve('..')];
-    percySnapshot = require('..');
+    // clear previous healthcheck result
+    delete percySnapshot.isPercyEnabled.result;
 
     // mock percy server
     percyServer = await createTestServer({
