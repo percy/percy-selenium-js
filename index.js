@@ -1,6 +1,4 @@
-const fs = require('fs');
 const fetch = require('node-fetch');
-const log = require('@percy/logger');
 
 // Collect client and environment information
 const sdkPkg = require('./package.json');
@@ -8,27 +6,56 @@ const seleniumPkg = require('selenium-webdriver/package.json');
 const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 
-// Maybe get the CLI API address from the environment
+// Maybe get the CLI API address and loglevel from the environment
 const { PERCY_CLI_API = 'http://localhost:5338/percy' } = process.env;
 
-// Check if Percy is enabled using the healthcheck endpoint
+// log helper for colored labels and errors
+function log(level, msg) {
+  let l = { debug: 0, info: 1, error: 2, quiet: 3 };
+  let LEVEL = process.env.PERCY_LOGLEVEL || 'info';
+  if (LEVEL == null || l[level] < l[LEVEL]) return;
+  let c = (n, s) => `\u001b[${n}m${s}\u001b[39m`;
+
+  if (level === 'error' || msg.stack) {
+    msg = (LEVEL === 'debug' && msg.stack) || msg.toString();
+    console.error(`[${c(35, 'percy')}] ${c(31, msg)}`);
+  } else {
+    console.log(`[${c(35, 'percy')}] ${msg}`);
+  }
+}
+
+let PERCY_DOM_SCRIPT;
+let PERCY_CORE_VERSION;
+
+// Test helper to reset cached results
+isPercyEnabled.reset = () => {
+  PERCY_DOM_SCRIPT = null;
+  PERCY_CORE_VERSION = null;
+};
+
+// Check if Percy is enabled while caching the @percy/dom script
 async function isPercyEnabled() {
-  if (isPercyEnabled.result == null) {
+  if (PERCY_CORE_VERSION == null) {
     try {
-      let response = await fetch(`${PERCY_CLI_API}/healthcheck`);
-      isPercyEnabled.result = response.ok;
+      let r = await fetch(`${PERCY_CLI_API}/dom.js`);
+      if (!r.ok) throw new Error(r.statusText);
+      PERCY_CORE_VERSION = r.headers.get('x-percy-core-version') || '0';
+      PERCY_DOM_SCRIPT = await r.text();
     } catch (err) {
-      isPercyEnabled.result = false;
-      log.debug(err);
+      PERCY_CORE_VERSION = '';
+      log('debug', err);
     }
 
-    if (isPercyEnabled.result === false) {
-      log.info('Percy is not running, disabling snapshots');
+    if (!PERCY_CORE_VERSION) {
+      log('info', 'Percy is not running, disabling snapshots');
+    } else if (parseInt(PERCY_CORE_VERSION) !== 1) {
+      log('info', 'Unsupported Percy CLI version, disabling snapshots');
+      PERCY_CORE_VERSION = '';
     }
   }
 
-  return isPercyEnabled.result;
-};
+  return !!PERCY_CORE_VERSION;
+}
 
 // Take a DOM snapshot and post it to the snapshot endpoint
 async function percySnapshot(browser, name, options) {
@@ -38,9 +65,7 @@ async function percySnapshot(browser, name, options) {
 
   try {
     // Inject the DOM serialization script
-    await browser.executeScript(
-      fs.readFileSync(require.resolve('@percy/dom'), 'utf-8')
-    );
+    await browser.executeScript(PERCY_DOM_SCRIPT);
 
     // Serialize and capture the DOM
     /* istanbul ignore next: no instrumenting injected code */
@@ -66,10 +91,10 @@ async function percySnapshot(browser, name, options) {
     let { success, error } = await response.json();
     if (!success) throw new Error(error);
   } catch (err) {
-    log.error(`Could not take DOM snapshot "${name}"`);
-    log.error(err);
+    log('error', `Could not take DOM snapshot "${name}"`);
+    log('error', err);
   }
-};
+}
 
 module.exports = percySnapshot;
 module.exports.isPercyEnabled = isPercyEnabled;
