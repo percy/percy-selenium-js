@@ -1,65 +1,100 @@
-const pkg = require('./package.json');
-const seleniumPkg = require('selenium-webdriver/package.json');
-const { readFileSync } = require('fs');
-const { agentJsFilename, isAgentRunning, postSnapshot } = require('@percy/agent/dist/utils/sdk-utils');
+const fetch = require('node-fetch');
 
-const CLIENT_INFO = `${pkg.name}/${pkg.version}`;
+// Collect client and environment information
+const sdkPkg = require('./package.json');
+const seleniumPkg = require('selenium-webdriver/package.json');
+const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 
-module.exports = async function percySnapshot(browser, name, options) {
-  if (!browser) {
-    throw new Error('An instance of the selenium driver object must be provided.');
-  }
+// Maybe get the CLI API address and loglevel from the environment
+const { PERCY_CLI_API = 'http://localhost:5338/percy' } = process.env;
 
-  if (!name) {
-    throw new Error("'name' must be provided.");
-  }
+// log helper for colored labels and errors
+function log(level, msg) {
+  let l = { debug: 0, info: 1, error: 2, quiet: 3 };
+  let LEVEL = process.env.PERCY_LOGLEVEL || 'info';
+  if (LEVEL == null || l[level] < l[LEVEL]) return;
+  let c = (n, s) => `\u001b[${n}m${s}\u001b[39m`;
 
-  try {
-    let agentJSString = readFileSync(agentJsFilename()).toString();
-
-    await browser.executeScript(agentJSString);
-  } catch (err) {
-    console.log(`[percy] Could not inject agent JS for snapshot '${name}', maybe due to stringent CSPs: ${err}`);
-    return;
-  }
-
-  if (!(await isAgentRunning())) {
-    return;
-  }
-
-  let domSnapshot;
-
-  try {
-    domSnapshot = await browser.executeScript(function(options) {
-      return new window.PercyAgent({
-        handleAgentCommunication: false
-      }).domSnapshot(document, options);
-    }, options);
-  } catch (err) {
-    console.log(`[percy] Could not take snapshot of the DOM for '${name}': ${err}`);
-    return;
-  }
-
-  await postDomSnapshot(
-    name,
-    domSnapshot,
-    await browser.getCurrentUrl(),
-    options
-  );
-};
-
-async function postDomSnapshot(name, domSnapshot, url, options) {
-  let postSuccess = await postSnapshot({
-    name,
-    url,
-    domSnapshot,
-    clientInfo: CLIENT_INFO,
-    environmentInfo: ENV_INFO,
-    ...options
-  });
-
-  if (!postSuccess) {
-    console.log(`[percy] Error posting snapshot to agent.`);
+  if (level === 'error' || msg.stack) {
+    msg = (LEVEL === 'debug' && msg.stack) || msg.toString();
+    console.error(`[${c(35, 'percy')}] ${c(31, msg)}`);
+  } else {
+    console.log(`[${c(35, 'percy')}] ${msg}`);
   }
 }
+
+let PERCY_DOM_SCRIPT;
+let PERCY_CORE_VERSION;
+
+// Test helper to reset cached results
+isPercyEnabled.reset = () => {
+  PERCY_DOM_SCRIPT = null;
+  PERCY_CORE_VERSION = null;
+};
+
+// Check if Percy is enabled while caching the @percy/dom script
+async function isPercyEnabled() {
+  if (PERCY_CORE_VERSION == null) {
+    try {
+      let r = await fetch(`${PERCY_CLI_API}/dom.js`);
+      if (!r.ok) throw new Error(r.statusText);
+      PERCY_CORE_VERSION = r.headers.get('x-percy-core-version') || '0';
+      PERCY_DOM_SCRIPT = await r.text();
+    } catch (err) {
+      PERCY_CORE_VERSION = '';
+      log('debug', err);
+    }
+
+    if (!PERCY_CORE_VERSION) {
+      log('info', 'Percy is not running, disabling snapshots');
+    } else if (parseInt(PERCY_CORE_VERSION) !== 1) {
+      log('info', 'Unsupported Percy CLI version, disabling snapshots');
+      PERCY_CORE_VERSION = '';
+    }
+  }
+
+  return !!PERCY_CORE_VERSION;
+}
+
+// Take a DOM snapshot and post it to the snapshot endpoint
+async function percySnapshot(browser, name, options) {
+  if (!browser) throw new Error('An instance of the selenium driver object is required.');
+  if (!name) throw new Error('The `name` argument is required.');
+  if (!(await isPercyEnabled())) return;
+
+  try {
+    // Inject the DOM serialization script
+    await browser.executeScript(PERCY_DOM_SCRIPT);
+
+    // Serialize and capture the DOM
+    /* istanbul ignore next: no instrumenting injected code */
+    let domSnapshot = await browser.executeScript(options => {
+      /* eslint-disable-next-line no-undef */
+      return PercyDOM.serialize(options);
+    }, options);
+
+    // Post the DOM to the snapshot endpoint with snapshot options and other info
+    let response = await fetch(`${PERCY_CLI_API}/snapshot`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...options,
+        environmentInfo: ENV_INFO,
+        clientInfo: CLIENT_INFO,
+        url: await browser.getCurrentUrl(),
+        domSnapshot,
+        name
+      })
+    });
+
+    // Handle errors
+    let { success, error } = await response.json();
+    if (!success) throw new Error(error);
+  } catch (err) {
+    log('error', `Could not take DOM snapshot "${name}"`);
+    log('error', err);
+  }
+}
+
+module.exports = percySnapshot;
+module.exports.isPercyEnabled = isPercyEnabled;
