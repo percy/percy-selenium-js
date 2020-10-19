@@ -78,3 +78,31 @@ $ percy exec -- node script.js
   - `options.percyCSS` - Percy specific CSS only applied in Percy's rendering environment
   - `options.requestHeaders` - Headers that should be used during asset discovery
   - `options.enableJavaScript` - Enable JavaScript in Percy's rendering environment
+
+## Upgrading
+
+If you're coming from the `@percy/seleniumjs` package, make sure to uninstall that package first
+before installing this one.
+
+Using yarn:
+
+```sh-session
+$ yarn remove @percy/seleniumjs
+```
+
+Using npm:
+
+```sh-session
+$ npm uninstall @percy/seleniumjs
+```
+
+Now you can safely [install `@percy/selenium-webdriver` and `@percy/cli`](#installation).
+
+### Migrating Config
+
+If you have a previous Percy configuration file, migrate it to the newest version with the
+[`config:migrate`](https://github.com/percy/cli/tree/master/packages/cli-config#percy-configmigrate-filepath-output) command:
+
+```sh-session
+$ percy config:migrate
+```
