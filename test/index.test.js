@@ -1,51 +1,35 @@
 const expect = require('expect');
 const webdriver = require('selenium-webdriver');
 const firefox = require('selenium-webdriver/firefox');
-const stdio = require('@percy/logger/test/helper');
-const createTestServer = require('@percy/core/test/helpers/server');
+const sdk = require('@percy/sdk-utils/test/helper');
 const percySnapshot = require('..');
 
 describe('percySnapshot', () => {
-  let driver, percyServer, testServer;
+  let driver;
 
   before(async function() {
     this.timeout(0);
 
-    // use a firefox driver for testing
     driver = await new webdriver.Builder()
       .forBrowser('firefox').setFirefoxOptions(
         new firefox.Options().headless()
       ).build();
+
+    await sdk.testsite.mock();
   });
 
   after(async () => {
     await driver.quit();
+    await sdk.testsite.close();
   });
 
   beforeEach(async () => {
-    // clear cached results
-    percySnapshot.isPercyEnabled.reset();
-
-    // mock percy server
-    percyServer = await createTestServer({
-      '/percy/dom.js': () => [200, 'application/javascript', (
-        'window.PercyDOM = { serialize: () => document.documentElement.outerHTML }')],
-      default: () => [200, 'application/json', { success: true }]
-    }, 5338);
-
-    // test site server
-    testServer = await createTestServer({
-      default: () => [200, 'text/html', 'Snapshot Me']
-    });
-
-    // go to test site
+    await sdk.setup();
     await driver.get('http://localhost:8000');
   });
 
   afterEach(async () => {
-    delete process.env.PERCY_LOGLEVEL;
-    await percyServer.close();
-    await testServer.close();
+    await sdk.teardown();
   });
 
   it('throws an error when a driver is not provided', async () => {
@@ -58,68 +42,32 @@ describe('percySnapshot', () => {
       .rejects.toThrow('The `name` argument is required.');
   });
 
-  it('disables snapshots when the API fails', async () => {
-    percyServer.reply('/percy/dom.js', () => Promise.reject(new Error()));
+  it('disables snapshots when the healthcheck fails', async () => {
+    sdk.test.failure('/percy/healthcheck');
 
-    await stdio.capture(async () => {
+    await sdk.stdio(async () => {
       await percySnapshot(driver, 'Snapshot 1');
       await percySnapshot(driver, 'Snapshot 2');
     });
 
-    expect(percyServer.requests).toEqual([
-      ['/percy/dom.js']
+    expect(sdk.server.requests).toEqual([
+      ['/percy/healthcheck']
     ]);
 
-    expect(stdio[2]).toHaveLength(0);
-    expect(stdio[1]).toEqual([
+    expect(sdk.stdio[2]).toEqual([]);
+    expect(sdk.stdio[1]).toEqual([
       '[percy] Percy is not running, disabling snapshots\n'
-    ]);
-  });
-
-  it('disables snapshots when the API encounters an error', async () => {
-    percyServer.reply('/percy/dom.js', req => req.connection.destroy());
-    process.env.PERCY_LOGLEVEL = 'debug';
-
-    await stdio.capture(async () => {
-      await percySnapshot(driver, 'Snapshot 1');
-      await percySnapshot(driver, 'Snapshot 2');
-    });
-
-    expect(percyServer.requests).toEqual([
-      ['/percy/dom.js']
-    ]);
-
-    expect(stdio[2]).toEqual([
-      expect.stringMatching(/\[percy] FetchError: .* reason: socket hang up\n/)
-    ]);
-    expect(stdio[1]).toEqual([
-      '[percy] Percy is not running, disabling snapshots\n'
-    ]);
-  });
-
-  it('disables snapshots when the API is the incorrect version', async () => {
-    percyServer.version = '';
-
-    await stdio.capture(async () => {
-      await percySnapshot(driver, 'Snapshot 1');
-      await percySnapshot(driver, 'Snapshot 2');
-    });
-
-    expect(percyServer.requests).toEqual([
-      ['/percy/dom.js']
-    ]);
-
-    expect(stdio[2]).toHaveLength(0);
-    expect(stdio[1]).toEqual([
-      '[percy] Unsupported Percy CLI version, disabling snapshots\n'
     ]);
   });
 
   it('posts snapshots to the local percy server', async () => {
-    await percySnapshot(driver, 'Snapshot 1');
-    await percySnapshot(driver, 'Snapshot 2');
+    await sdk.stdio(async () => {
+      await percySnapshot(driver, 'Snapshot 1');
+      await percySnapshot(driver, 'Snapshot 2');
+    });
 
-    expect(percyServer.requests).toEqual([
+    expect(sdk.server.requests).toEqual([
+      ['/percy/healthcheck'],
       ['/percy/dom.js'],
       ['/percy/snapshot', {
         name: 'Snapshot 1',
@@ -132,21 +80,21 @@ describe('percySnapshot', () => {
         name: 'Snapshot 2'
       })]
     ]);
+
+    expect(sdk.stdio[2]).toEqual([]);
   });
 
-  it('handles snapshot errors', async () => {
-    percyServer.reply('/percy/snapshot', () => (
-      [400, 'application/json', { success: false, error: 'testing' }]
-    ));
+  it('handles snapshot failures', async () => {
+    sdk.test.failure('/percy/snapshot', 'failure');
 
-    await stdio.capture(async () => {
+    await sdk.stdio(async () => {
       await percySnapshot(driver, 'Snapshot 1');
     });
 
-    expect(stdio[1]).toHaveLength(0);
-    expect(stdio[2]).toEqual([
+    expect(sdk.stdio[1]).toHaveLength(0);
+    expect(sdk.stdio[2]).toEqual([
       '[percy] Could not take DOM snapshot "Snapshot 1"\n',
-      '[percy] Error: testing\n'
+      '[percy] Error: failure\n'
     ]);
   });
 });
