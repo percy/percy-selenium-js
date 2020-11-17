@@ -18,19 +18,20 @@ module.exports = async function percySnapshot(driver, name, options) {
 
     // Serialize and capture the DOM
     /* istanbul ignore next: no instrumenting injected code */
-    let domSnapshot = await driver.executeScript(options => {
+    let { domSnapshot, url } = await driver.executeScript(options => ({
       /* eslint-disable-next-line no-undef */
-      return PercyDOM.serialize(options);
-    }, options);
+      domSnapshot: PercyDOM.serialize(options),
+      url: document.URL
+    }), options);
 
     // Post the DOM to the snapshot endpoint with snapshot options and other info
     await utils.postSnapshot({
       ...options,
       environmentInfo: ENV_INFO,
       clientInfo: CLIENT_INFO,
-      url: await driver.getCurrentUrl(),
       domSnapshot,
-      name
+      name,
+      url
     });
   } catch (error) {
     // Handle errors
