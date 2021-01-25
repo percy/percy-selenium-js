@@ -11,6 +11,7 @@ module.exports = async function percySnapshot(driver, name, options) {
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
   if (!(await utils.isPercyEnabled())) return;
+  let log = utils.logger('selenium-webdriver');
 
   try {
     // Inject the DOM serialization script
@@ -35,7 +36,7 @@ module.exports = async function percySnapshot(driver, name, options) {
     });
   } catch (error) {
     // Handle errors
-    utils.log('error', `Could not take DOM snapshot "${name}"`);
-    utils.log('error', error);
+    log.error(`Could not take DOM snapshot "${name}"`);
+    log.error(error);
   }
 };
