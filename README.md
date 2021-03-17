@@ -6,14 +6,6 @@
 
 ## Installation
 
-Using yarn:
-
-```sh-session
-$ yarn add --dev @percy/cli @percy/selenium-webdriver
-```
-
-Using npm:
-
 ```sh-session
 $ npm install --save-dev @percy/cli @percy/selenium-webdriver
 ```
@@ -81,16 +73,27 @@ $ percy exec -- node script.js
 
 ## Upgrading
 
-If you're coming from the `@percy/seleniumjs` package, make sure to uninstall that package first
-before installing this one.
+### Automatically with `@percy/migrate`
 
-Using yarn:
+We built a tool to help automate migrating to the new CLI toolchain! Migrating
+can be done by running the following commands and following the prompts:
 
-```sh-session
-$ yarn remove @percy/seleniumjs
+``` shell
+$ npx @percy/migrate
+? Are you currently using @percy/selenium-webdriver (@percy/seleniumjs)? Yes
+? Install @percy/cli (required to run percy)? Yes
+? Migrate Percy config file? Yes
+? Upgrade SDK to @percy/selenium-webdriver@1.0.0? Yes
 ```
 
-Using npm:
+This will automatically run the changes described below for you.
+
+### Manually
+
+#### Uninstalling `@percy/seleniumjs`
+
+If you're coming from the `@percy/seleniumjs` package, make sure to uninstall that package first
+before installing this one.
 
 ```sh-session
 $ npm uninstall @percy/seleniumjs
@@ -98,7 +101,17 @@ $ npm uninstall @percy/seleniumjs
 
 Now you can safely [install `@percy/selenium-webdriver` and `@percy/cli`](#installation).
 
-### Migrating Config
+#### Installing `@percy/cli`
+
+If you're coming from a pre-1.0 version of this package, make sure to install `@percy/cli` after
+upgrading to retain any existing scripts that reference the Percy CLI command.
+
+```sh-session
+$ npm install --save-dev @percy/cli
+```
+
+
+#### Migrating Config
 
 If you have a previous Percy configuration file, migrate it to the newest version with the
 [`config:migrate`](https://github.com/percy/cli/tree/master/packages/cli-config#percy-configmigrate-filepath-output) command:
