@@ -1,7 +1,7 @@
 const expect = require('expect');
 const webdriver = require('selenium-webdriver');
 const firefox = require('selenium-webdriver/firefox');
-const sdk = require('@percy/sdk-utils/test/helper');
+const helpers = require('@percy/sdk-utils/test/helpers');
 const percySnapshot = require('..');
 
 describe('percySnapshot', () => {
@@ -15,21 +15,21 @@ describe('percySnapshot', () => {
         new firefox.Options().headless()
       ).build();
 
-    await sdk.testsite.mock();
+    await helpers.mockSite();
   });
 
   after(async () => {
     await driver.quit();
-    await sdk.testsite.close();
+    await helpers.closeSite();
   });
 
   beforeEach(async () => {
-    await sdk.setup();
+    await helpers.setup();
     await driver.get('http://localhost:8000');
   });
 
   afterEach(async () => {
-    await sdk.teardown();
+    await helpers.teardown();
   });
 
   it('throws an error when a driver is not provided', async () => {
@@ -43,18 +43,18 @@ describe('percySnapshot', () => {
   });
 
   it('disables snapshots when the healthcheck fails', async () => {
-    sdk.test.failure('/percy/healthcheck');
+    await helpers.testFailure('/percy/healthcheck');
 
     await percySnapshot(driver, 'Snapshot 1');
     await percySnapshot(driver, 'Snapshot 2');
 
-    expect(sdk.server.requests).toEqual([
+    await expect(helpers.getRequests()).resolves.toEqual([
       ['/percy/healthcheck']
     ]);
 
-    expect(sdk.logger.stderr).toEqual([]);
-    expect(sdk.logger.stdout).toEqual([
-      '[percy] Percy is not running, disabling snapshots\n'
+    expect(helpers.logger.stderr).toEqual([]);
+    expect(helpers.logger.stdout).toEqual([
+      '[percy] Percy is not running, disabling snapshots'
     ]);
   });
 
@@ -62,7 +62,7 @@ describe('percySnapshot', () => {
     await percySnapshot(driver, 'Snapshot 1');
     await percySnapshot(driver, 'Snapshot 2');
 
-    expect(sdk.server.requests).toEqual([
+    await expect(helpers.getRequests()).resolves.toEqual([
       ['/percy/healthcheck'],
       ['/percy/dom.js'],
       ['/percy/snapshot', {
@@ -77,19 +77,19 @@ describe('percySnapshot', () => {
       })]
     ]);
 
-    expect(sdk.logger.stderr).toEqual([]);
-    expect(sdk.logger.stdout).toEqual([]);
+    expect(helpers.logger.stderr).toEqual([]);
+    expect(helpers.logger.stdout).toEqual([]);
   });
 
   it('handles snapshot failures', async () => {
-    sdk.test.failure('/percy/snapshot', 'failure');
+    await helpers.testFailure('/percy/snapshot', 'failure');
 
     await percySnapshot(driver, 'Snapshot 1');
 
-    expect(sdk.logger.stdout).toEqual([]);
-    expect(sdk.logger.stderr).toEqual([
-      '[percy] Could not take DOM snapshot "Snapshot 1"\n',
-      '[percy] Error: failure\n'
+    expect(helpers.logger.stdout).toEqual([]);
+    expect(helpers.logger.stderr).toEqual([
+      '[percy] Could not take DOM snapshot "Snapshot 1"',
+      '[percy] Error: failure'
     ]);
   });
 });
