@@ -379,9 +379,9 @@
   integrity sha512-//oorEZjL6sbPcKUaCdIGlIUeH26mgzimjBB77G6XRgnDl/L5wOnpyBGRe/Mmf5CVW3PwEBE1NjiMZ/ssFh4wA==
 
 "@types/selenium-webdriver@^4.0.9":
-  version "4.0.12"
-  resolved "https://registry.yarnpkg.com/@types/selenium-webdriver/-/selenium-webdriver-4.0.12.tgz#5d5ab3f104be767ddbc84e3b97ba08e31c61d63c"
-  integrity sha512-0fw09Ocwjbrc3xMqwz1dgDGwslaHZ/TqHu9WQTyNLVsK+3jekz46YvYNFZeglNnULMjMNXAhy7w90327Y9fxGQ==
+  version "4.0.13"
+  resolved "https://registry.yarnpkg.com/@types/selenium-webdriver/-/selenium-webdriver-4.0.13.tgz#293d9543b096ec3523a27704b0f112bdfb38987f"
+  integrity sha512-RiQ863Rt8lVX/YveuYX2GSufaH4/1lWRZ6dITlcXtrJGYZmaNstYahm7qJ8FO+2kyAcrUtQVMxMjGv5FbsQeEQ==
 
 "@types/stack-utils@^2.0.0":
   version "2.0.0"
