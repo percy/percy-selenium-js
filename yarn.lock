@@ -327,16 +327,6 @@
   resolved "https://registry.yarnpkg.com/@percy/logger/-/logger-1.0.0-beta.69.tgz#29fcd7431f3d5a2cc55c4d7849d6ac340ad7ad03"
   integrity sha512-8RRJijvspQGMeHIlh6jppTT0Jz2uH4o7XBQfWEtJ6EyI54MHYWMULeNoVLl51BNNDk8N2GvgIBOX9eCnOhIVzw==
 
-"@percy/logger@1.0.0-beta.69":
-  version "1.0.0-beta.69"
-  resolved "https://registry.yarnpkg.com/@percy/logger/-/logger-1.0.0-beta.69.tgz#29fcd7431f3d5a2cc55c4d7849d6ac340ad7ad03"
-  integrity sha512-8RRJijvspQGMeHIlh6jppTT0Jz2uH4o7XBQfWEtJ6EyI54MHYWMULeNoVLl51BNNDk8N2GvgIBOX9eCnOhIVzw==
-
-"@percy/logger@1.0.0-beta.69":
-  version "1.0.0-beta.69"
-  resolved "https://registry.yarnpkg.com/@percy/logger/-/logger-1.0.0-beta.69.tgz#29fcd7431f3d5a2cc55c4d7849d6ac340ad7ad03"
-  integrity sha512-8RRJijvspQGMeHIlh6jppTT0Jz2uH4o7XBQfWEtJ6EyI54MHYWMULeNoVLl51BNNDk8N2GvgIBOX9eCnOhIVzw==
-
 "@percy/sdk-utils@~1.0.0-beta.44":
   version "1.0.0-beta.69"
   resolved "https://registry.yarnpkg.com/@percy/sdk-utils/-/sdk-utils-1.0.0-beta.69.tgz#0458050e9db5f0b05b54cf942f70432f93366fbb"
@@ -412,9 +402,9 @@
   integrity sha512-//oorEZjL6sbPcKUaCdIGlIUeH26mgzimjBB77G6XRgnDl/L5wOnpyBGRe/Mmf5CVW3PwEBE1NjiMZ/ssFh4wA==
 
 "@types/selenium-webdriver@^4.0.9":
-  version "4.0.15"
-  resolved "https://registry.yarnpkg.com/@types/selenium-webdriver/-/selenium-webdriver-4.0.15.tgz#03012b84155cf6bbae2f64aa9dccf2a84c78c7c8"
-  integrity sha512-5760PIZkzhPejy3hsKAdCKe5LJygGdxLKOLxmZL9GEUcFlO5OgzM6G2EbdbvOnaw4xvUSa9Uip6Ipwkih12BPA==
+  version "4.0.16"
+  resolved "https://registry.yarnpkg.com/@types/selenium-webdriver/-/selenium-webdriver-4.0.16.tgz#c3205c6691a1d645cf4163684bd119230a60e6f5"
+  integrity sha512-0UAzu2lFXpLK4lU4yhgUtM/KxoN8hIpyI+q22KAwzIDHNk4kLJ/Ut5mJZLFSxfQx58OBQ9SJXZkSL065fe/WdQ==
 
 "@types/stack-utils@^2.0.0":
   version "2.0.0"
