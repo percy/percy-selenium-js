@@ -402,9 +402,9 @@
   integrity sha512-//oorEZjL6sbPcKUaCdIGlIUeH26mgzimjBB77G6XRgnDl/L5wOnpyBGRe/Mmf5CVW3PwEBE1NjiMZ/ssFh4wA==
 
 "@types/selenium-webdriver@^4.0.9":
-  version "4.0.16"
-  resolved "https://registry.yarnpkg.com/@types/selenium-webdriver/-/selenium-webdriver-4.0.16.tgz#c3205c6691a1d645cf4163684bd119230a60e6f5"
-  integrity sha512-0UAzu2lFXpLK4lU4yhgUtM/KxoN8hIpyI+q22KAwzIDHNk4kLJ/Ut5mJZLFSxfQx58OBQ9SJXZkSL065fe/WdQ==
+  version "4.0.17"
+  resolved "https://registry.yarnpkg.com/@types/selenium-webdriver/-/selenium-webdriver-4.0.17.tgz#a72c2c8867f1f9c783f9e243a3d759052a93dff4"
+  integrity sha512-GltN2eqVk/sWAObnyywqfMbbV9tuhMx7g4zhX0n+z0Z7Ji5WJua0mVHgj6EuNY1z+wss6gALxaTMUPS4xLYC3w==
 
 "@types/stack-utils@^2.0.0":
   version "2.0.0"
