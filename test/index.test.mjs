@@ -1,8 +1,7 @@
-const expect = require('expect');
-const webdriver = require('selenium-webdriver');
-const firefox = require('selenium-webdriver/firefox');
-const helpers = require('@percy/sdk-utils/test/helpers');
-const percySnapshot = require('..');
+import expect from 'expect';
+import webdriver from 'selenium-webdriver';
+import helpers from '@percy/sdk-utils/test/helpers';
+import percySnapshot from '../index.js';
 
 describe('percySnapshot', () => {
   let driver;
@@ -11,9 +10,7 @@ describe('percySnapshot', () => {
     this.timeout(0);
 
     driver = await new webdriver.Builder()
-      .forBrowser('firefox').setFirefoxOptions(
-        new firefox.Options().headless()
-      ).build();
+      .forBrowser('firefox').build();
 
     await helpers.mockSite();
   });
