@@ -1,5 +1,3 @@
-const utils = require('@percy/sdk-utils');
-
 // Collect client and environment information
 const sdkPkg = require('./package.json');
 const seleniumPkg = require('selenium-webdriver/package.json');
@@ -8,6 +6,8 @@ const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 
 // Take a DOM snapshot and post it to the snapshot endpoint
 module.exports = async function percySnapshot(driver, name, options) {
+  let utils = await import('@percy/sdk-utils');
+
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
   if (!(await utils.isPercyEnabled())) return;
