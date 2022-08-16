@@ -21,7 +21,7 @@
   },
   "scripts": {
     "lint": "eslint --ignore-path .gitignore .",
-    "test": "cross-env MOZ_HEADLESS=1 NODE_ENV=test mocha",
+    "test": "cross-env MOZ_HEADLESS=1 NODE_ENV=test percy exec --testing -- mocha",
     "test:coverage": "nyc yarn test",
     "test:types": "tsd"
   },
@@ -32,7 +32,7 @@
     "selenium-webdriver": "~3 || ~4"
   },
   "devDependencies": {
-    "@percy/core": "^1.0.0",
+    "@percy/cli": "^1.9.1",
     "@types/selenium-webdriver": "^4.0.9",
     "cross-env": "^7.0.2",
     "eslint": "^7.11.0",

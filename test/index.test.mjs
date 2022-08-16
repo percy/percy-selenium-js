@@ -11,22 +11,15 @@ describe('percySnapshot', () => {
 
     driver = await new webdriver.Builder()
       .forBrowser('firefox').build();
-
-    await helpers.mockSite();
   });
 
   after(async () => {
     await driver.quit();
-    await helpers.closeSite();
   });
 
   beforeEach(async () => {
-    await helpers.setup();
-    await driver.get('http://localhost:8000');
-  });
-
-  afterEach(async () => {
-    await helpers.teardown();
+    await helpers.setupTest();
+    await driver.get(helpers.testSnapshotURL);
   });
 
   it('throws an error when a driver is not provided', async () => {
@@ -40,53 +33,35 @@ describe('percySnapshot', () => {
   });
 
   it('disables snapshots when the healthcheck fails', async () => {
-    await helpers.testFailure('/percy/healthcheck');
+    await helpers.test('error', '/percy/healthcheck');
 
     await percySnapshot(driver, 'Snapshot 1');
     await percySnapshot(driver, 'Snapshot 2');
 
-    await expect(helpers.getRequests()).resolves.toEqual([
-      ['/percy/healthcheck']
-    ]);
-
-    expect(helpers.logger.stderr).toEqual([]);
-    expect(helpers.logger.stdout).toEqual([
-      '[percy] Percy is not running, disabling snapshots'
-    ]);
+    expect(await helpers.get('logs')).toEqual(expect.arrayContaining([
+      'Percy is not running, disabling snapshots'
+    ]));
   });
 
   it('posts snapshots to the local percy server', async () => {
     await percySnapshot(driver, 'Snapshot 1');
     await percySnapshot(driver, 'Snapshot 2');
 
-    await expect(helpers.getRequests()).resolves.toEqual([
-      ['/percy/healthcheck'],
-      ['/percy/dom.js'],
-      ['/percy/snapshot', {
-        name: 'Snapshot 1',
-        url: 'http://localhost:8000/',
-        domSnapshot: '<html><head></head><body>Snapshot Me</body></html>',
-        clientInfo: expect.stringMatching(/@percy\/selenium-webdriver\/.+/),
-        environmentInfo: expect.stringMatching(/selenium-webdriver\/.+/)
-      }],
-      ['/percy/snapshot', expect.objectContaining({
-        name: 'Snapshot 2'
-      })]
-    ]);
-
-    expect(helpers.logger.stderr).toEqual([]);
-    expect(helpers.logger.stdout).toEqual([]);
+    expect(await helpers.get('logs')).toEqual(expect.arrayContaining([
+      'Snapshot found: Snapshot 1',
+      'Snapshot found: Snapshot 2',
+      `- url: ${helpers.testSnapshotURL}`,
+      expect.stringMatching(/clientInfo: @percy\/selenium-webdriver\/.+/),
+      expect.stringMatching(/environmentInfo: selenium-webdriver\/.+/)
+    ]));
   });
 
   it('handles snapshot failures', async () => {
-    await helpers.testFailure('/percy/snapshot', 'failure');
-
+    await helpers.test('error', '/percy/snapshot');
     await percySnapshot(driver, 'Snapshot 1');
 
-    expect(helpers.logger.stdout).toEqual([]);
-    expect(helpers.logger.stderr).toEqual([
-      '[percy] Could not take DOM snapshot "Snapshot 1"',
-      '[percy] Error: failure'
-    ]);
+    expect(await helpers.get('logs')).toEqual(expect.arrayContaining([
+      'Could not take DOM snapshot "Snapshot 1"'
+    ]));
   });
 });
