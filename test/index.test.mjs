@@ -1,4 +1,3 @@
-import expect from 'expect';
 import webdriver from 'selenium-webdriver';
 import helpers from '@percy/sdk-utils/test/helpers';
 import percySnapshot from '../index.js';
@@ -6,14 +5,12 @@ import percySnapshot from '../index.js';
 describe('percySnapshot', () => {
   let driver;
 
-  before(async function() {
-    this.timeout(0);
-
+  beforeAll(async function() {
     driver = await new webdriver.Builder()
       .forBrowser('firefox').build();
   });
 
-  after(async () => {
+  afterAll(async () => {
     await driver.quit();
   });
 
@@ -23,13 +20,13 @@ describe('percySnapshot', () => {
   });
 
   it('throws an error when a driver is not provided', async () => {
-    await expect(percySnapshot())
-      .rejects.toThrow('An instance of the selenium driver object is required.');
+    await expectAsync(percySnapshot())
+      .toBeRejectedWithError('An instance of the selenium driver object is required.');
   });
 
   it('throws an error when a name is not provided', async () => {
-    await expect(percySnapshot(driver))
-      .rejects.toThrow('The `name` argument is required.');
+    await expectAsync(percySnapshot(driver))
+      .toBeRejectedWithError('The `name` argument is required.');
   });
 
   it('disables snapshots when the healthcheck fails', async () => {
@@ -38,8 +35,8 @@ describe('percySnapshot', () => {
     await percySnapshot(driver, 'Snapshot 1');
     await percySnapshot(driver, 'Snapshot 2');
 
-    expect(await helpers.get('logs')).toEqual(expect.arrayContaining([
-      'Percy is not running, disabling snapshots'
+    expect(helpers.logger.stdout).toEqual(jasmine.arrayContaining([
+      '[percy] Percy is not running, disabling snapshots'
     ]));
   });
 
@@ -47,12 +44,12 @@ describe('percySnapshot', () => {
     await percySnapshot(driver, 'Snapshot 1');
     await percySnapshot(driver, 'Snapshot 2');
 
-    expect(await helpers.get('logs')).toEqual(expect.arrayContaining([
+    expect(await helpers.get('logs')).toEqual(jasmine.arrayContaining([
       'Snapshot found: Snapshot 1',
       'Snapshot found: Snapshot 2',
       `- url: ${helpers.testSnapshotURL}`,
-      expect.stringMatching(/clientInfo: @percy\/selenium-webdriver\/.+/),
-      expect.stringMatching(/environmentInfo: selenium-webdriver\/.+/)
+      jasmine.stringMatching(/clientInfo: @percy\/selenium-webdriver\/.+/),
+      jasmine.stringMatching(/environmentInfo: selenium-webdriver\/.+/)
     ]));
   });
 
@@ -60,8 +57,8 @@ describe('percySnapshot', () => {
     await helpers.test('error', '/percy/snapshot');
     await percySnapshot(driver, 'Snapshot 1');
 
-    expect(await helpers.get('logs')).toEqual(expect.arrayContaining([
-      'Could not take DOM snapshot "Snapshot 1"'
+    expect(helpers.logger.stderr).toEqual(jasmine.arrayContaining([
+      '[percy] Could not take DOM snapshot "Snapshot 1"'
     ]));
   });
 });

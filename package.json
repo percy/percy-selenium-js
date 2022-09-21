@@ -21,7 +21,7 @@
   },
   "scripts": {
     "lint": "eslint --ignore-path .gitignore .",
-    "test": "cross-env MOZ_HEADLESS=1 NODE_ENV=test percy exec --testing -- mocha",
+    "test": "cross-env MOZ_HEADLESS=1 NODE_ENV=test percy exec --testing -- jasmine --config=./test/jasmine.json",
     "test:coverage": "nyc yarn test",
     "test:types": "tsd"
   },
@@ -32,7 +32,7 @@
     "selenium-webdriver": "~3 || ~4"
   },
   "devDependencies": {
-    "@percy/cli": "^1.9.1",
+    "@percy/cli": "^1.10.4",
     "@types/selenium-webdriver": "^4.0.9",
     "cross-env": "^7.0.2",
     "eslint": "^7.11.0",
@@ -41,9 +41,9 @@
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^5.1.0",
     "eslint-plugin-standard": "^5.0.0",
-    "expect": "^27.0.2",
-    "geckodriver": "^3.0.1",
-    "mocha": "^10.0.0",
+    "geckodriver": "^3.0.2",
+    "jasmine": "^4.4.0",
+    "jasmine-spec-reporter": "^7.0.0",
     "nyc": "^15.1.0",
     "selenium-webdriver": "~4.1.0",
     "tsd": "^0.24.1"
