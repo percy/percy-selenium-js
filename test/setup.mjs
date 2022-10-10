@@ -1,6 +1,6 @@
 import { SpecReporter } from 'jasmine-spec-reporter';
 
-jasmine.DEFAULT_TIMEOUT_INTERVAL = 10000;
+jasmine.DEFAULT_TIMEOUT_INTERVAL = 50000;
 const env = jasmine.getEnv();
 
 // allow re-spying
