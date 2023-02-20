@@ -493,9 +493,9 @@
     "@types/node" "*"
 
 "@types/selenium-webdriver@^4.0.9":
-  version "4.1.6"
-  resolved "https://registry.yarnpkg.com/@types/selenium-webdriver/-/selenium-webdriver-4.1.6.tgz#a23b15abc8023db5cd56dad736cbb8d830d38c71"
-  integrity sha512-qK1UbVws7APzKmL2pP1ypVXCdMrJko32anuz5Fl6qrU/1AWM/mVVY7cOM7FhsOVrIqLXo+YoKJf6+LLNtXgbSw==
+  version "4.1.11"
+  resolved "https://registry.yarnpkg.com/@types/selenium-webdriver/-/selenium-webdriver-4.1.11.tgz#29ad053d04bf07c148dae36ba09baa3af5323cb0"
+  integrity sha512-KQ+TIvSTdpkUoW+fCLO3XyxlpnoD1PSZc0TBbuSbD/6gltB6gZ9q/VxhDGR7svhwA23G35uCAb5guAlVUaQKeA==
   dependencies:
     "@types/ws" "*"
 
@@ -2639,14 +2639,14 @@ safe-buffer@~5.1.0, safe-buffer@~5.1.1:
   resolved "https://registry.yarnpkg.com/safe-buffer/-/safe-buffer-5.1.2.tgz#991ec69d296e0313747d59bdfd2b745c35f8828d"
   integrity sha512-Gd2UZBJDkXlY7GbJxfsE8/nvKkUEU1G38c1siN6QP6a9PT9MmHB8GnpscSmMJSoF8LOIrt8ud/wPtojys4G6+g==
 
-selenium-webdriver@~4.5.0:
-  version "4.5.0"
-  resolved "https://registry.yarnpkg.com/selenium-webdriver/-/selenium-webdriver-4.5.0.tgz#7e20d0fc038177970dad81159950c12f7411ac0d"
-  integrity sha512-9mSFii+lRwcnT2KUAB1kqvx6+mMiiQHH60Y0VUtr3kxxi3oZ3CV3B8e2nuJ7T4SPb+Q6VA0swswe7rYpez07Bg==
+selenium-webdriver@~4.8.1:
+  version "4.8.1"
+  resolved "https://registry.yarnpkg.com/selenium-webdriver/-/selenium-webdriver-4.8.1.tgz#4b0a546c4ea747c44e9688c108f7a46b8d8244ab"
+  integrity sha512-p4MtfhCQdcV6xxkS7eI0tQN6+WNReRULLCAuT4RDGkrjfObBNXMJ3WT8XdK+aXTr5nnBKuh+PxIevM0EjJgkxA==
   dependencies:
     jszip "^3.10.0"
     tmp "^0.2.1"
-    ws ">=8.7.0"
+    ws ">=8.11.0"
 
 "semver@2 || 3 || 4 || 5":
   version "5.7.1"
@@ -3071,10 +3071,10 @@ write-file-atomic@^3.0.0:
     signal-exit "^3.0.2"
     typedarray-to-buffer "^3.1.5"
 
-ws@>=8.7.0, ws@^8.0.0:
-  version "8.9.0"
-  resolved "https://registry.yarnpkg.com/ws/-/ws-8.9.0.tgz#2a994bb67144be1b53fe2d23c53c028adeb7f45e"
-  integrity sha512-Ja7nszREasGaYUYCI2k4lCKIRTt+y7XuqVoHR44YpI49TtryyqbqvDMn5eqfW7e6HzTukDRIsXqzVHScqRcafg==
+ws@>=8.11.0, ws@^8.0.0:
+  version "8.12.1"
+  resolved "https://registry.yarnpkg.com/ws/-/ws-8.12.1.tgz#c51e583d79140b5e42e39be48c934131942d4a8f"
+  integrity sha512-1qo+M9Ba+xNhPB+YTWUlK6M17brTut5EXbcBaMRN5pH5dFrXz7lzz1ChFSUq3bOUl8yEvSenhHmYUNJxFzdJew==
 
 y18n@^4.0.0:
   version "4.0.1"
