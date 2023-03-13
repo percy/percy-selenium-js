@@ -46,6 +46,6 @@
     "jasmine-spec-reporter": "^7.0.0",
     "nyc": "^15.1.0",
     "selenium-webdriver": "~4.5.0",
-    "tsd": "^0.24.1"
+    "tsd": "^0.27.0"
   }
 }
