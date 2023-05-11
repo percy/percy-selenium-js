@@ -4,9 +4,11 @@ const seleniumPkg = require('selenium-webdriver/package.json');
 const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 const utils = require('@percy/sdk-utils');
+const { RequestInterceptor } = require('node-request-interceptor');
+const withDefaultInterceptors = require('node-request-interceptor/lib/presets/default');
 
 // Take a DOM snapshot and post it to the snapshot endpoint
-module.exports = async function percySnapshot(driver, name, options) {
+async function percySnapshot(driver, name, options) {
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
   if (!(await utils.isPercyEnabled())) return;
@@ -39,3 +41,43 @@ module.exports = async function percySnapshot(driver, name, options) {
     log.error(error);
   }
 };
+
+async function percyScreenshot(driver, name, options, postScreenshot = utils.postScreenshot) {
+  if (!driver) throw new Error('An instance of the selenium driver object is required.');
+  if (!name) throw new Error('The `name` argument is required.');
+  if (!(await utils.isPercyEnabled())) return;
+  let log = utils.logger('selenium-webdriver');
+  try {
+    const session = await driver.getSession();
+    const sessionId = session.getId();
+    const capabilities = Object.fromEntries(session.getCapabilities().map_);
+    let commandExecutorUrl;
+
+    // To intercept request from driver. used to get remote server url
+    const interceptor = new RequestInterceptor(withDefaultInterceptors.default);
+    interceptor.use((req) => {
+      const url = req.url.href;
+      commandExecutorUrl = url.split('/session')[0];
+    });
+    await driver.getCurrentUrl();
+    interceptor.restore();
+
+    // Post the driver details to the automate screenshot endpoint with snapshot options and other info
+    await postScreenshot({
+      ...options,
+      environmentInfo: ENV_INFO,
+      clientInfo: CLIENT_INFO,
+      sessionId: sessionId,
+      commandExecutorUrl: commandExecutorUrl,
+      capabilities: capabilities,
+      snapshotName: name
+    });
+  } catch (error) {
+    // Handle errors
+    log.error(`Could not take Screenshot "${name}"`);
+    log.error(error.stack);
+  }
+};
+
+const percy = module.exports = percySnapshot;
+percy.percyScreenshot = percyScreenshot;

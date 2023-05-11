@@ -26,7 +26,8 @@
     "test:types": "tsd"
   },
   "dependencies": {
-    "@percy/sdk-utils": "^1.0.0"
+    "@percy/sdk-utils": "^1.0.0",
+    "node-request-interceptor": "^0.6.3"
   },
   "peerDependencies": {
     "selenium-webdriver": "~3 || ~4"
