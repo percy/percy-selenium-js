@@ -65,6 +65,13 @@ describe('percySnapshot', () => {
 });
 
 describe('percyScreenshot', () => {
+  class Browser { // Mocking WDIO driver
+    constructor() {
+      this.sessionId = '123';
+      this.capabilities = { browserName: 'chrome' };
+      this.options = { protocol: 'https', path: '/wd/hub', hostname: 'hub-cloud.browserstack.com' };
+    }
+  }
   let driver;
 
   beforeAll(async function() {
@@ -109,6 +116,15 @@ describe('percyScreenshot', () => {
     await percyScreenshot(driver, 'Snapshot 1', {}, mockedPostCall);
     expect(mockedPostCall).toHaveBeenCalledWith(jasmine.objectContaining({
       sessionId: '123', commandExecutorUrl: 'http://localhost:5338/wd/hub', snapshotName: 'Snapshot 1'
+    }));
+  });
+
+  it('posts driver details to the local percy server with wdio', async () => {
+    driver = new Browser();
+    const mockedPostCall = jasmine.createSpy('spy');
+    await percyScreenshot(driver, 'Snapshot 1', {}, mockedPostCall);
+    expect(mockedPostCall).toHaveBeenCalledWith(jasmine.objectContaining({
+      sessionId: '123', commandExecutorUrl: 'https://hub-cloud.browserstack.com/wd/hub', snapshotName: 'Snapshot 1'
     }));
   });
 

@@ -43,24 +43,42 @@ async function percySnapshot(driver, name, options) {
 };
 
 async function percyScreenshot(driver, name, options, postScreenshot = utils.postScreenshot) {
+  if (!driver || typeof driver === 'string') {
+    // Unable to test this as couldnt define `browser` from test mjs file
+    try {
+      // browser is defined in wdio context
+      // eslint-disable-next-line no-undef
+      [driver, name, options] = [browser, driver, name];
+    } catch (e) { // ReferenceError: browser is not defined.
+      driver = undefined;
+    }
+  }
+
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
   if (!(await utils.isPercyEnabled())) return;
   let log = utils.logger('selenium-webdriver');
-  try {
-    const session = await driver.getSession();
-    const sessionId = session.getId();
-    const capabilities = Object.fromEntries(session.getCapabilities().map_);
-    let commandExecutorUrl;
 
-    // To intercept request from driver. used to get remote server url
-    const interceptor = new RequestInterceptor(withDefaultInterceptors.default);
-    interceptor.use((req) => {
-      const url = req.url.href;
-      commandExecutorUrl = url.split('/session')[0];
-    });
-    await driver.getCurrentUrl();
-    interceptor.restore();
+  try {
+    let sessionId, capabilities, commandExecutorUrl;
+    if (driver.constructor.name === 'Browser') { // Logic for wdio
+      sessionId = driver.sessionId;
+      capabilities = driver.capabilities;
+      commandExecutorUrl = driver.options.protocol + '://' + driver.options.hostname + driver.options.path;
+    } else { // Logic for selenium-webdriver
+      const session = await driver.getSession();
+      sessionId = session.getId();
+      capabilities = Object.fromEntries(session.getCapabilities().map_);
+
+      // To intercept request from driver. used to get remote server url
+      const interceptor = new RequestInterceptor(withDefaultInterceptors.default);
+      interceptor.use((req) => {
+        const url = req.url.href;
+        commandExecutorUrl = url.split('/session')[0];
+      });
+      await driver.getCurrentUrl();
+      interceptor.restore();
+    }
 
     // Post the driver details to the automate screenshot endpoint with snapshot options and other info
     await postScreenshot({
