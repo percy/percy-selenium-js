@@ -8,7 +8,7 @@ const { RequestInterceptor } = require('node-request-interceptor');
 const withDefaultInterceptors = require('node-request-interceptor/lib/presets/default');
 
 // Take a DOM snapshot and post it to the snapshot endpoint
-async function percySnapshot(driver, name, options) {
+module.exports = async function percySnapshot(driver, name, options) {
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
   if (!(await utils.isPercyEnabled())) return;
@@ -42,11 +42,11 @@ async function percySnapshot(driver, name, options) {
   }
 };
 
-async function request(data) {
+module.exports.request = async function request(data) {
   await utils.postScreenshot(data);
-}
+}; // To mock in test case
 
-async function percyScreenshot(driver, name, options) {
+module.exports.percyScreenshot = async function percyScreenshot(driver, name, options) {
   if (!driver || typeof driver === 'string') {
     // Unable to test this as couldnt define `browser` from test mjs file
     try {
@@ -100,7 +100,3 @@ async function percyScreenshot(driver, name, options) {
     log.error(error.stack);
   }
 };
-
-module.exports = percySnapshot;
-module.exports.percyScreenshot = percyScreenshot;
-module.exports.request = request; // To mock in test case
