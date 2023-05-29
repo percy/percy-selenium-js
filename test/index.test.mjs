@@ -112,8 +112,8 @@ describe('percyScreenshot', () => {
   });
 
   it('posts driver details to the local percy server', async () => {
-    const mockedPostCall = jasmine.createSpy('spy');
-    await percyScreenshot(driver, 'Snapshot 1', {}, mockedPostCall);
+    const mockedPostCall = spyOn(percySnapshot, 'request').and.callFake(() => {});
+    await percyScreenshot(driver, 'Snapshot 1', {});
     expect(mockedPostCall).toHaveBeenCalledWith(jasmine.objectContaining({
       sessionId: '123', commandExecutorUrl: 'http://localhost:5338/wd/hub', snapshotName: 'Snapshot 1'
     }));
@@ -121,8 +121,8 @@ describe('percyScreenshot', () => {
 
   it('posts driver details to the local percy server with wdio', async () => {
     driver = new Browser();
-    const mockedPostCall = jasmine.createSpy('spy');
-    await percyScreenshot(driver, 'Snapshot 1', {}, mockedPostCall);
+    const mockedPostCall = spyOn(percySnapshot, 'request').and.callFake(() => {});
+    await percyScreenshot(driver, 'Snapshot 1', {});
     expect(mockedPostCall).toHaveBeenCalledWith(jasmine.objectContaining({
       sessionId: '123', commandExecutorUrl: 'https://hub-cloud.browserstack.com/wd/hub', snapshotName: 'Snapshot 1'
     }));

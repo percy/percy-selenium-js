@@ -42,7 +42,11 @@ async function percySnapshot(driver, name, options) {
   }
 };
 
-async function percyScreenshot(driver, name, options, postScreenshot = utils.postScreenshot) {
+async function request(data) {
+  await utils.postScreenshot(data);
+}
+
+async function percyScreenshot(driver, name, options) {
   if (!driver || typeof driver === 'string') {
     // Unable to test this as couldnt define `browser` from test mjs file
     try {
@@ -64,7 +68,7 @@ async function percyScreenshot(driver, name, options, postScreenshot = utils.pos
     if (driver.constructor.name === 'Browser') { // Logic for wdio
       sessionId = driver.sessionId;
       capabilities = driver.capabilities;
-      commandExecutorUrl = driver.options.protocol + '://' + driver.options.hostname + driver.options.path;
+      commandExecutorUrl = `${driver.options.protocol}://${driver.options.hostname}${driver.options.path}`;
     } else { // Logic for selenium-webdriver
       const session = await driver.getSession();
       sessionId = session.getId();
@@ -81,7 +85,7 @@ async function percyScreenshot(driver, name, options, postScreenshot = utils.pos
     }
 
     // Post the driver details to the automate screenshot endpoint with snapshot options and other info
-    await postScreenshot({
+    await module.exports.request({
       ...options,
       environmentInfo: ENV_INFO,
       clientInfo: CLIENT_INFO,
@@ -97,5 +101,6 @@ async function percyScreenshot(driver, name, options, postScreenshot = utils.pos
   }
 };
 
-const percy = module.exports = percySnapshot;
-percy.percyScreenshot = percyScreenshot;
+module.exports = percySnapshot;
+module.exports.percyScreenshot = percyScreenshot;
+module.exports.request = request; // To mock in test case
