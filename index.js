@@ -80,7 +80,9 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
         const url = req.url.href;
         commandExecutorUrl = url.split('/session')[0];
       });
+      // making a call so we can intercept commandExecutorUrl
       await driver.getCurrentUrl();
+      // To stop intercepting request
       interceptor.restore();
     }
 
