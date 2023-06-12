@@ -98,7 +98,6 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
     if (options && 'ignore_region_selenium_elements' in options) {
       options.ignore_region_selenium_elements = await getElementIdFromElements(options.ignore_region_selenium_elements);
     }
-    console.log(options);
     // Post the driver details to the automate screenshot endpoint with snapshot options and other info
     await module.exports.request({
       environmentInfo: ENV_INFO,
