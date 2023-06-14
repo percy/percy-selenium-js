@@ -47,12 +47,7 @@ module.exports.request = async function request(data) {
 }; // To mock in test case
 
 const getElementIdFromElements = async function getElementIdFromElements(elements) {
-  const ignoredElementsArray = [];
-  for (let index = 0; index < elements.length; index++) {
-    const elementId = await elements[index].getId();
-    ignoredElementsArray.push(elementId);
-  }
-  return ignoredElementsArray;
+  return Promise.all(elements.map(e => e.getId()));
 };
 
 module.exports.percyScreenshot = async function percyScreenshot(driver, name, options) {
