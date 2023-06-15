@@ -46,6 +46,10 @@ module.exports.request = async function request(data) {
   await utils.postScreenshot(data);
 }; // To mock in test case
 
+const getElementIdFromElements = async function getElementIdFromElements(elements) {
+  return Promise.all(elements.map(e => e.getId()));
+};
+
 module.exports.percyScreenshot = async function percyScreenshot(driver, name, options) {
   if (!driver || typeof driver === 'string') {
     // Unable to test this as couldnt define `browser` from test mjs file
@@ -86,15 +90,18 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
       interceptor.restore();
     }
 
+    if (options && 'ignore_region_selenium_elements' in options) {
+      options.ignore_region_selenium_elements = await getElementIdFromElements(options.ignore_region_selenium_elements);
+    }
     // Post the driver details to the automate screenshot endpoint with snapshot options and other info
     await module.exports.request({
-      ...options,
       environmentInfo: ENV_INFO,
       clientInfo: CLIENT_INFO,
       sessionId: sessionId,
       commandExecutorUrl: commandExecutorUrl,
       capabilities: capabilities,
-      snapshotName: name
+      snapshotName: name,
+      options: options
     });
   } catch (error) {
     // Handle errors
