@@ -43,7 +43,7 @@ module.exports = async function percySnapshot(driver, name, options) {
 };
 
 module.exports.request = async function request(data) {
-  await utils.postScreenshot(data);
+  await utils.captureAutomateScreenshot(data);
 }; // To mock in test case
 
 const getElementIdFromElements = async function getElementIdFromElements(elements) {
@@ -91,7 +91,8 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
     }
 
     if (options && 'ignore_region_selenium_elements' in options) {
-      options.ignore_region_selenium_elements = await getElementIdFromElements(options.ignore_region_selenium_elements);
+      options.ignore_region_elements = await getElementIdFromElements(options.ignore_region_selenium_elements);
+      delete options.ignore_region_selenium_elements;
     }
     // Post the driver details to the automate screenshot endpoint with snapshot options and other info
     await module.exports.request({
