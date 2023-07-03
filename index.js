@@ -43,7 +43,7 @@ module.exports = async function percySnapshot(driver, name, options) {
 };
 
 module.exports.request = async function request(data) {
-  await utils.postScreenshot(data);
+  await utils.captureAutomateScreenshot(data);
 }; // To mock in test case
 
 const getElementIdFromElements = async function getElementIdFromElements(elements) {
