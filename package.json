@@ -26,14 +26,14 @@
     "test:types": "tsd"
   },
   "dependencies": {
-    "@percy/sdk-utils": "^1.0.0",
     "node-request-interceptor": "^0.6.3"
   },
   "peerDependencies": {
     "selenium-webdriver": "~3 || ~4"
   },
   "devDependencies": {
-    "@percy/cli": "^1.10.4",
+    "@percy/cli": "1.27.0-alpha.0",
+    "@percy/webdriver-utils": "1.27.0-alpha.0",
     "@types/selenium-webdriver": "^4.0.9",
     "cross-env": "^7.0.2",
     "eslint": "^7.11.0",
