@@ -43,7 +43,7 @@
     "eslint-plugin-promise": "^5.1.0",
     "eslint-plugin-standard": "^5.0.0",
     "geckodriver": "^3.0.2",
-    "jasmine": "^4.4.0",
+    "jasmine": "^5.0.2",
     "jasmine-spec-reporter": "^7.0.0",
     "nyc": "^15.1.0",
     "selenium-webdriver": "~4.5.0",
