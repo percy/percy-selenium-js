@@ -122,11 +122,19 @@ describe('percyScreenshot', () => {
   it('posts driver details to the local percy server with ignore region', async () => {
     const element = { getId: () => {} };
     const mockElement = spyOn(element, 'getId').and.callFake(() => { return new Promise((resolve, _) => resolve('123')); });
+    const mockConsiderElement = spyOn(element, 'getId').and.callFake(() => { return new Promise((resolve, _) => resolve('456')); });
     const mockedPostCall = spyOn(percySnapshot, 'request').and.callFake(() => {});
-    await percyScreenshot(driver, 'Snapshot 2', { ignore_region_selenium_elements: [element] });
+    await percyScreenshot(driver, 'Snapshot 2', { ignore_region_selenium_elements: [element], consider_region_selenium_elements: [mockConsiderElement] });
     expect(mockElement).toHaveBeenCalled();
+    expect(mockConsiderElement).toHaveBeenCalled();
     expect(mockedPostCall).toHaveBeenCalledWith(jasmine.objectContaining({
-      sessionId: '123', commandExecutorUrl: 'http://localhost:5338/wd/hub', snapshotName: 'Snapshot 2', options: { ignore_region_selenium_elements: ['123'] }
+      sessionId: '123',
+      commandExecutorUrl: 'http://localhost:5338/wd/hub',
+      snapshotName: 'Snapshot 2',
+      options: {
+        ignore_region_selenium_elements: ['123'],
+        consider_region_selenium_elements: ['456']
+      }
     }));
   });
 
