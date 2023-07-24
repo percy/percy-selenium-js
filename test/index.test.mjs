@@ -119,7 +119,7 @@ describe('percyScreenshot', () => {
     }));
   });
 
-  fit('posts driver details to the local percy server with camel case options', async () => {
+  it('posts driver details to the local percy server with camel case options', async () => {
     const element = { getId: () => {} };
     const considerElement = { getId: () => {} };
     const mockElement = spyOn(element, 'getId').and.callFake(() => { return new Promise((resolve, _) => resolve('123')); });
