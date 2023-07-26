@@ -90,9 +90,23 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
       interceptor.restore();
     }
 
-    if (options && 'ignore_region_selenium_elements' in options) {
-      options.ignore_region_selenium_elements = await getElementIdFromElements(options.ignore_region_selenium_elements);
+    if (options) {
+      if ('ignoreRegionSeleniumElements' in options) {
+        options.ignore_region_selenium_elements = options.ignoreRegionSeleniumElements;
+        delete options.ignoreRegionSeleniumElements;
+      }
+      if ('considerRegionSeleniumElements' in options) {
+        options.consider_region_selenium_elements = options.considerRegionSeleniumElements;
+        delete options.considerRegionSeleniumElements;
+      }
+      if ('ignore_region_selenium_elements' in options) {
+        options.ignore_region_selenium_elements = await getElementIdFromElements(options.ignore_region_selenium_elements);
+      }
+      if ('consider_region_selenium_elements' in options) {
+        options.consider_region_selenium_elements = await getElementIdFromElements(options.consider_region_selenium_elements);
+      }
     }
+
     // Post the driver details to the automate screenshot endpoint with snapshot options and other info
     await module.exports.request({
       environmentInfo: ENV_INFO,
