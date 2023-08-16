@@ -24,8 +24,9 @@ class DriverMetadata {
 
   async getCapabilities() {
     return await Cache.withCache(Cache.capabilities, await this.getSessionId(), async () => {
-      if (this.type === 'wdio') return await this.driver.capabilities;
-      if (this.type === 'wd') {
+      if (this.type === 'wdio') {
+        return await this.driver.capabilities;
+      } else {
         const session = await this.driver.getSession();
         const capabilities = Object.fromEntries(session.getCapabilities().map_);
         return capabilities;
@@ -35,8 +36,9 @@ class DriverMetadata {
 
   async getCommandExecutorUrl() {
     return await Cache.withCache(Cache.commandExecutorUrl, await this.getSessionId(), async () => {
-      if (this.type === 'wdio') return `${this.driver.options.protocol}://${this.driver.options.hostname}${this.driver.options.path}`;
-      if (this.type === 'wd') {
+      if (this.type === 'wdio') {
+        return `${this.driver.options.protocol}://${this.driver.options.hostname}${this.driver.options.path}`;
+      } else {
         // To intercept request from driver. used to get remote server url
         const interceptor = new RequestInterceptor(withDefaultInterceptors.default);
         let commandExecutorUrl = '';

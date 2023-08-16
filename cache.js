@@ -19,7 +19,7 @@ class Cache {
       if (store[key].success) {
         return store[key].val;
       } else {
-      throw store[key].val;
+        throw store[key].val;
       }
     }
 
@@ -39,7 +39,7 @@ class Cache {
     }
 
     if (!obj.success) throw obj.val;
-    return obj.val;    
+    return obj.val;
   }
 
   static maintain() {
