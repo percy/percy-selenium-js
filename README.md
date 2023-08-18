@@ -167,10 +167,10 @@ const driver = new webdriver.Builder().usingServer('https://hub-cloud.browsersta
 Note: Automate Percy Token starts with `auto` keyword. The command can be triggered using `exec` keyword.
 ```sh-session
 $ export PERCY_TOKEN=[your-project-token]
-$ percy exec -- [python test command]
+$ percy exec -- [js test command]
 [percy] Percy has started!
-[percy] [Python example] : Starting automate screenshot ...
-[percy] Screenshot taken "Python example"
+[percy] [Javascript example] : Starting automate screenshot ...
+[percy] Screenshot taken "Javascript example"
 [percy] Stopping percy...
 [percy] Finalized build #1: https://percy.io/[your-project]
 [percy] Done!
