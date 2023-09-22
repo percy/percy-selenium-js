@@ -11,8 +11,11 @@ const withDefaultInterceptors = require('node-request-interceptor/lib/presets/de
 module.exports = async function percySnapshot(driver, name, options) {
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
-  if (!(await utils.isPercyEnabled())) return;
+  if (!(await module.exports.isPercyEnabled())) return;
   let log = utils.logger('selenium-webdriver');
+  if (utils.percy?.type === 'automate') {
+    throw new Error('Invalid function call - percySnapshot(). Please use percyScreenshot() function while using Percy with Automate. For more information on usage of percyScreenshot, refer https://docs.percy.io/docs/integrate-functional-testing-with-visual-testing');
+  }
 
   try {
     // Inject the DOM serialization script
@@ -64,8 +67,11 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
 
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
-  if (!(await utils.isPercyEnabled())) return;
+  if (!(await module.exports.isPercyEnabled())) return;
   let log = utils.logger('selenium-webdriver');
+  if (utils.percy?.type === 'web') {
+    throw new Error('Invalid function call - percyScreenshot(). Please use percySnapshot() function for taking screenshot. percyScreenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing');
+  }
 
   try {
     let sessionId, capabilities, commandExecutorUrl;
@@ -122,4 +128,10 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
     log.error(`Could not take Screenshot "${name}"`);
     log.error(error.stack);
   }
+};
+
+// jasmine cannot mock individual functions, hence adding isPercyEnabled to the exports object
+// also need to define this at the end of the file or else default exports will over-ride this
+module.exports.isPercyEnabled = async function isPercyEnabled() {
+  return await utils.isPercyEnabled();
 };
