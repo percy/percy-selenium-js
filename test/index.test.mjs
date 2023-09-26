@@ -1,6 +1,7 @@
 import webdriver from 'selenium-webdriver';
 import helpers from '@percy/sdk-utils/test/helpers';
 import percySnapshot from '../index.js';
+import { Cache } from '../cache.js';
 const { percyScreenshot } = percySnapshot;
 
 describe('percySnapshot', () => {
@@ -88,6 +89,7 @@ describe('percyScreenshot', () => {
 
   beforeEach(async () => {
     await helpers.setupTest();
+    Cache.reset();
   });
 
   it('throws an error when a driver is not provided', async () => {
