@@ -4,8 +4,7 @@ const seleniumPkg = require('selenium-webdriver/package.json');
 const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 const utils = require('@percy/sdk-utils');
-const { RequestInterceptor } = require('node-request-interceptor');
-const withDefaultInterceptors = require('node-request-interceptor/lib/presets/default');
+const { DriverMetadata } = require('./driverMetadata');
 
 // Take a DOM snapshot and post it to the snapshot endpoint
 module.exports = async function percySnapshot(driver, name, options) {
@@ -74,28 +73,7 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
   }
 
   try {
-    let sessionId, capabilities, commandExecutorUrl;
-    if (driver.constructor.name === 'Browser') { // Logic for wdio
-      sessionId = driver.sessionId;
-      capabilities = driver.capabilities;
-      commandExecutorUrl = `${driver.options.protocol}://${driver.options.hostname}${driver.options.path}`;
-    } else { // Logic for selenium-webdriver
-      const session = await driver.getSession();
-      sessionId = session.getId();
-      capabilities = Object.fromEntries(session.getCapabilities().map_);
-
-      // To intercept request from driver. used to get remote server url
-      const interceptor = new RequestInterceptor(withDefaultInterceptors.default);
-      interceptor.use((req) => {
-        const url = req.url.href;
-        commandExecutorUrl = url.split('/session')[0];
-      });
-      // making a call so we can intercept commandExecutorUrl
-      await driver.getCurrentUrl();
-      // To stop intercepting request
-      interceptor.restore();
-    }
-
+    const driverData = new DriverMetadata(driver);
     if (options) {
       if ('ignoreRegionSeleniumElements' in options) {
         options.ignore_region_selenium_elements = options.ignoreRegionSeleniumElements;
@@ -117,9 +95,9 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
     await module.exports.request({
       environmentInfo: ENV_INFO,
       clientInfo: CLIENT_INFO,
-      sessionId: sessionId,
-      commandExecutorUrl: commandExecutorUrl,
-      capabilities: capabilities,
+      sessionId: await driverData.getSessionId(),
+      commandExecutorUrl: await driverData.getCommandExecutorUrl(),
+      capabilities: await driverData.getCapabilities(),
       snapshotName: name,
       options: options
     });
