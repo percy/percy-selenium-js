@@ -1,6 +1,7 @@
 import webdriver from 'selenium-webdriver';
 import helpers from '@percy/sdk-utils/test/helpers';
 import percySnapshot from '../index.js';
+import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
 const { percyScreenshot } = percySnapshot;
 
@@ -63,6 +64,19 @@ describe('percySnapshot', () => {
       '[percy] Could not take DOM snapshot "Snapshot 1"'
     ]));
   });
+
+  it('throws error for percy on automate session', async () => {
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.type = 'automate';
+
+    let error = null;
+    try {
+      await percySnapshot(driver, 'Snapshot 2');
+    } catch (e) {
+      error = e.message;
+    }
+    expect(error).toEqual('Invalid function call - percySnapshot(). Please use percyScreenshot() function while using Percy with Automate. For more information on usage of percyScreenshot, refer https://docs.percy.io/docs/integrate-functional-testing-with-visual-testing');
+  });
 });
 
 describe('percyScreenshot', () => {
@@ -89,6 +103,8 @@ describe('percyScreenshot', () => {
 
   beforeEach(async () => {
     await helpers.setupTest();
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.type = 'automate';
     Cache.reset();
   });
 
@@ -103,6 +119,7 @@ describe('percyScreenshot', () => {
   });
 
   it('disables snapshots when the healthcheck fails', async () => {
+    spyOn(percySnapshot, 'isPercyEnabled').and.callThrough();
     await helpers.test('error', '/percy/healthcheck');
 
     await percyScreenshot(driver, 'Snapshot 1');
@@ -175,5 +192,18 @@ describe('percyScreenshot', () => {
     expect(helpers.logger.stderr).toEqual(jasmine.arrayContaining([
       '[percy] Could not take Screenshot "Snapshot 1"'
     ]));
+  });
+
+  it('throws error for web session', async () => {
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.type = 'web';
+
+    let error = null;
+    try {
+      await percyScreenshot(driver, 'Snapshot 2');
+    } catch (e) {
+      error = e.message;
+    }
+    expect(error).toEqual('Invalid function call - percyScreenshot(). Please use percySnapshot() function for taking screenshot. percyScreenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing');
   });
 });
