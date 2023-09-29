@@ -17,11 +17,8 @@
   "main": "index.js",
   "types": "types/index.d.ts",
   "files": [
-    "index.js",
-    "cache.js",
-    "driverMetadata.js",
-    "types/index.d.ts",
-    "validations.js"
+    "*.js",
+    "types/index.d.ts"
   ],
   "engines": {
     "node": ">=14"
