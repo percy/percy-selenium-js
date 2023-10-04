@@ -30,6 +30,7 @@
     "test:types": "tsd"
   },
   "dependencies": {
+    "@percy/sdk-utils": "^1.27.2",
     "node-request-interceptor": "^0.6.3"
   },
   "peerDependencies": {
@@ -41,8 +42,8 @@
     "cross-env": "^7.0.2",
     "eslint": "^8.27.0",
     "eslint-config-standard": "^17.0.0",
-    "eslint-plugin-n": "^15.5.1",
     "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-n": "^15.5.1",
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^6.1.1",
     "eslint-plugin-standard": "^5.0.0",
