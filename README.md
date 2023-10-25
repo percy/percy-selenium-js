@@ -149,14 +149,20 @@ const driver = new webdriver.Builder().usingServer('https://hub-cloud.browsersta
     - `ignoreRegionXpaths` - List of xpaths. elements in the DOM can be ignored using xpath
     - `ignoreRegionSelectors` - List of selectors. elements in the DOM can be ignored using selectors.
     - `ignoreRegionSeleniumElements` - List of selenium web-element. elements can be ignored using selenium_elements.
-    - `customIgnoreRegions` - List of custom object. elements can be ignored using custom boundaries. Just passing a simple object for it like below.
-                            - example: ```json{top: 10, right: 10, bottom: 120, left: 10}```
+    - `customIgnoreRegions` - List of custom objects. elements can be ignored using custom boundaries. Just passing a simple object for it like below.
+                            - example: 
+                              ```
+                                {top: 10, right: 10, bottom: 120, left: 10}
+                              ```
                             - In above example it will draw rectangle of ignore region which will be 10px below from top and 120px above from bottom. 10px apart from left and right.
     - `considerRegionXpaths` - List of xpaths. elements in the DOM can be considered for diffing and will be ignored by Intelli Ignore using xpaths.
     - `considerRegionSelectors` - List of selectors. elements in the DOM can be considered for diffing and will be ignored by Intelli Ignore using selectors.
     - `considerRegionSeleniumElements` - List of selenium web-element. elements can be considered for diffing and will be ignored by Intelli Ignore using selenium_elements.
-    - `customConsiderRegions` - List of custom object. elements can be considered for diffing and will be ignored by Intelli Ignore using custom boundaries
-                              - example: ```json{top: 10, right: 10, bottom: 120, left: 10}```
+    - `customConsiderRegions` - List of custom objects. elements can be considered for diffing and will be ignored by Intelli Ignore using custom boundaries
+                              - example:
+                              ```
+                                {top: 10, right: 10, bottom: 120, left: 10}
+                              ```
                               - In above example it will draw rectangle of ignore region which will be 10px below from top and 120px above from bottom. 10px apart from left and right.
 
 ### Creating Percy on automate build
