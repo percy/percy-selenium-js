@@ -143,8 +143,8 @@ const driver = new webdriver.Builder().usingServer('https://hub-cloud.browsersta
 - `name` (**required**) - The screenshot name; must be unique to each screenshot
 - `options` (**optional**) - There are various options supported by percyScreenshot to server further functionality.
     - `freezeAnimatedImage` - Boolean value by default it falls back to `false`, you can pass `true` and percy will freeze image based animations.
-    - `freezeImageBySelectors` - List of selectors. Images will be freezed which are passed using selectors.
-    - `freezeImageByXpaths` - List of xpaths. Images will be freezed which are passed using xpaths.
+    - `freezeImageBySelectors` - List of selectors. Images will be freezed which are passed using selectors. For this to work `freezeAnimatedImage` must be set to true.
+    - `freezeImageByXpaths` - List of xpaths. Images will be freezed which are passed using xpaths. For this to work `freezeAnimatedImage` must be set to true.
     - `percyCSS` - Custom CSS to be added to DOM before the screenshot being taken. Note: This gets removed once the screenshot is taken.
     - `ignoreRegionXpaths` - List of xpaths. elements in the DOM can be ignored using xpath
     - `ignoreRegionSelectors` - List of selectors. elements in the DOM can be ignored using selectors.
