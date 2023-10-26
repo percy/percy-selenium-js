@@ -142,27 +142,31 @@ const driver = new webdriver.Builder().usingServer('https://hub-cloud.browsersta
 - `driver` (**required**) - A Selenium driver instance
 - `name` (**required**) - The screenshot name; must be unique to each screenshot
 - `options` (**optional**) - There are various options supported by percyScreenshot to server further functionality.
-    - `freezeAnimation` - Boolean value by default it falls back to `false`, you can pass `true` and percy will freeze image based animations.
+    - `freezeAnimatedImage` - Boolean value by default it falls back to `false`, you can pass `true` and percy will freeze image based animations.
+    - `freezeImageBySelectors` - List of selectors. Images will be freezed which are passed using selectors. For this to work `freezeAnimatedImage` must be set to true.
+    - `freezeImageByXpaths` - List of xpaths. Images will be freezed which are passed using xpaths. For this to work `freezeAnimatedImage` must be set to true.
     - `percyCSS` - Custom CSS to be added to DOM before the screenshot being taken. Note: This gets removed once the screenshot is taken.
-    - `ignoreRegionXpaths` - elements in the DOM can be ignored using xpath
-    - `ignoreRegionSelectors` - elements in the DOM can be ignored using selectors.
-    - `ignoreRegionSeleniumElements` - elements can be ignored using selenium_elements.
-    - `customIgnoreRegions` - elements can be ignored using custom boundaries
-      - IgnoreRegion:-
-        - Description: This class represents a rectangular area on a screen that needs to be ignored for visual diff.
-
-        - Constructor:
-          ```
-          init(self, top, bottom, left, right)
-          ```
-        - Parameters:
-          `top` (int): Top coordinate of the ignore region.
-          `bottom` (int): Bottom coordinate of the ignore region.
-          `left` (int): Left coordinate of the ignore region.
-          `right` (int): Right coordinate of the ignore region.
-        - Raises:ValueError: If top, bottom, left, or right is less than 0 or top is greater than or equal to bottom or left is greater than or equal to right.
-        - valid: Ignore region should be within the boundaries of the screen.
-
+    - `ignoreRegionXpaths` - List of xpaths. elements in the DOM can be ignored using xpath
+    - `ignoreRegionSelectors` - List of selectors. elements in the DOM can be ignored using selectors.
+    - `ignoreRegionSeleniumElements` - List of selenium web-element. elements can be ignored using selenium_elements.
+    - `customIgnoreRegions` - List of custom objects. elements can be ignored using custom boundaries. Just passing a simple object for it like below.
+      - example: ```{top: 10, right: 10, bottom: 120, left: 10}```
+      - In above example it will draw rectangle of ignore region as per given coordinates.
+        - `top` (int): Top coordinate of the ignore region.
+        - `bottom` (int): Bottom coordinate of the ignore region.
+        - `left` (int): Left coordinate of the ignore region.
+        - `right` (int): Right coordinate of the ignore region.
+    - `considerRegionXpaths` - List of xpaths. elements in the DOM can be considered for diffing and will be ignored by Intelli Ignore using xpaths.
+    - `considerRegionSelectors` - List of selectors. elements in the DOM can be considered for diffing and will be ignored by Intelli Ignore using selectors.
+    - `considerRegionSeleniumElements` - List of selenium web-element. elements can be considered for diffing and will be ignored by Intelli Ignore using selenium_elements.
+    - `customConsiderRegions` - List of custom objects. elements can be considered for diffing and will be ignored by Intelli Ignore using custom boundaries
+      - example:  ```{top: 10, right: 10, bottom: 120, left: 10}```
+      - In above example it will draw rectangle of consider region will be drawn.
+      - Parameters:
+        - `top` (int): Top coordinate of the consider region.
+        - `bottom` (int): Bottom coordinate of the consider region.
+        - `left` (int): Left coordinate of the consider region.
+        - `right` (int): Right coordinate of the consider region.
 ### Creating Percy on automate build
 Note: Automate Percy Token starts with `auto` keyword. The command can be triggered using `exec` keyword.
 ```sh-session
