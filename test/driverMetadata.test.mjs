@@ -2,8 +2,14 @@ import { DriverMetadata } from '../driverMetadata.js';
 import { Cache } from '../cache.js';
 
 describe('DriverMetadata', () => {
-
   class Browser { // Mocking WDIO driver
+    constructor() {
+      this.sessionId = '123';
+      this.capabilities = { browserName: 'chrome' };
+      this.options = { protocol: 'https', path: '/wd/hub', hostname: 'hub-cloud.browserstack.com' };
+    }
+  }
+  class BoundBrowser { // Mocking ts WDIO driver
     constructor() {
       this.sessionId = '123';
       this.capabilities = { browserName: 'chrome' };
@@ -28,10 +34,14 @@ describe('DriverMetadata', () => {
     Cache.reset();
   });
 
-
   describe('getSessionId', () => {
-    it ('returns the sessionId', async () => {
+    it('returns the sessionId', async () => {
       const driverMetadata = new DriverMetadata(driver);
+      await expectAsync(driverMetadata.getSessionId()).toBeResolvedTo('123');
+    });
+
+    it('Should work with typescript wdio', async () => {
+      const driverMetadata = new DriverMetadata(new BoundBrowser());
       await expectAsync(driverMetadata.getSessionId()).toBeResolvedTo('123');
     });
   });

@@ -7,7 +7,7 @@ class DriverMetadata {
   constructor(driver) {
     this.driver = driver;
     this.sessionId = null;
-    if (this.driver.constructor.name === 'Browser') {
+    if (this.driver.constructor.name.includes('Browser')) {
       this.type = 'wdio';
     } else {
       this.type = 'wd';
