@@ -142,6 +142,7 @@ const driver = new webdriver.Builder().usingServer('https://hub-cloud.browsersta
 - `driver` (**required**) - A Selenium driver instance
 - `name` (**required**) - The screenshot name; must be unique to each screenshot
 - `options` (**optional**) - There are various options supported by percyScreenshot to server further functionality.
+    - `fullPage` - Boolean value by default it falls back to `false`, Takes full page screenshot [From CLI v1.27.6+]
     - `freezeAnimatedImage` - Boolean value by default it falls back to `false`, you can pass `true` and percy will freeze image based animations.
     - `freezeImageBySelectors` - List of selectors. Images will be freezed which are passed using selectors. For this to work `freezeAnimatedImage` must be set to true.
     - `freezeImageByXpaths` - List of xpaths. Images will be freezed which are passed using xpaths. For this to work `freezeAnimatedImage` must be set to true.
