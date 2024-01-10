@@ -4,6 +4,7 @@ let seleniumPkg;
 try {
   seleniumPkg = require('selenium-webdriver/package.json');
 } catch {
+  /* istanbul ignore next */
   seleniumPkg = { name: 'unknown', version: 'unknown' };
 }
 const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
