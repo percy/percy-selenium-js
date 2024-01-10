@@ -1,6 +1,5 @@
 import { expectType, expectError } from 'tsd';
-import percySnapshot from '.';
-import percyScreenshot from '.';
+import percySnapshot, { percyScreenshot } from '.';
 let driver = {}
 
 expectError(percySnapshot());
@@ -17,4 +16,4 @@ expectError(percyScreenshot('Snapshot name'));
 expectType<Promise<void>>(percyScreenshot(driver, 'Snapshot name'));
 expectType<Promise<void>>(percyScreenshot(driver, 'Snapshot name', { widths: [1000] }));
 
-expectError(percyScreenshot(driver, 'Snapshot name', { foo: 'bar' }));
+expectType<Promise<void>>(percyScreenshot(driver, 'Snapshot name', { foo: 'bar' }));
