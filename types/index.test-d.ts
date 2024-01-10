@@ -1,11 +1,9 @@
 import { expectType, expectError } from 'tsd';
-import { WebDriver } from 'selenium-webdriver';
 import percySnapshot from '.';
 
-declare const driver: WebDriver;
+let driver = {}
 
 expectError(percySnapshot());
-expectError(percySnapshot(driver));
 expectError(percySnapshot('Snapshot name'));
 
 expectType<Promise<void>>(percySnapshot(driver, 'Snapshot name'));

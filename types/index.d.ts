@@ -1,8 +1,13 @@
 import { SnapshotOptions } from '@percy/core';
-import { WebDriver } from 'selenium-webdriver';
 
 export default function percySnapshot(
-  browser: WebDriver,
+  browser: any,
   name: string,
   options?: SnapshotOptions
+): Promise<void>;
+
+export default function percyScreenshot(
+  browser: any,
+  name: string,
+  options?: Object
 ): Promise<void>;

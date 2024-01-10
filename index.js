@@ -1,6 +1,11 @@
 // Collect client and environment information
 const sdkPkg = require('./package.json');
-const seleniumPkg = require('selenium-webdriver/package.json');
+let seleniumPkg;
+try {
+  seleniumPkg = require('selenium-webdriver/package.json');
+} catch {
+  seleniumPkg = { name: 'unknown', version: 'unknown'}
+}
 const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 const utils = require('@percy/sdk-utils');
