@@ -4,7 +4,7 @@ let seleniumPkg;
 try {
   seleniumPkg = require('selenium-webdriver/package.json');
 } catch {
-  seleniumPkg = { name: 'unknown', version: 'unknown'}
+  seleniumPkg = { name: 'unknown', version: 'unknown' };
 }
 const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
@@ -104,7 +104,7 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
       commandExecutorUrl: await driverData.getCommandExecutorUrl(),
       capabilities: await driverData.getCapabilities(),
       snapshotName: name,
-      options: options
+      options
     });
   } catch (error) {
     // Handle errors
