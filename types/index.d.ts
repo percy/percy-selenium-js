@@ -6,7 +6,7 @@ export default function percySnapshot(
   options?: SnapshotOptions
 ): Promise<void>;
 
-export default function percyScreenshot(
+export function percyScreenshot(
   browser: any,
   name: string,
   options?: Object
