@@ -161,13 +161,13 @@ describe('percyScreenshot', () => {
     expect(response).toEqual(mockresponse.data);
   });
 
-  it('posts driver details to the local percy server with ignore and consider region', async () => {
+  it('posts driver details to the local percy server with ignore and consider region and sync', async () => {
     const element = { getId: () => {} };
     const considerElement = { getId: () => {} };
     const mockElement = spyOn(element, 'getId').and.callFake(() => { return new Promise((resolve, _) => resolve('123')); });
     const mockConsiderElement = spyOn(considerElement, 'getId').and.callFake(() => { return new Promise((resolve, _) => resolve('456')); });
     const mockedPostCall = spyOn(percySnapshot, 'request').and.callFake(() => {});
-    await percyScreenshot(driver, 'Snapshot 2', { ignore_region_selenium_elements: [element], consider_region_selenium_elements: [considerElement] });
+    await percyScreenshot(driver, 'Snapshot 2', { ignore_region_selenium_elements: [element], consider_region_selenium_elements: [considerElement], sync: true });
     expect(mockElement).toHaveBeenCalled();
     expect(mockConsiderElement).toHaveBeenCalled();
     expect(mockedPostCall).toHaveBeenCalledWith(jasmine.objectContaining({
@@ -176,7 +176,8 @@ describe('percyScreenshot', () => {
       snapshotName: 'Snapshot 2',
       options: {
         ignore_region_selenium_elements: ['123'],
-        consider_region_selenium_elements: ['456']
+        consider_region_selenium_elements: ['456'],
+        sync: true
       }
     }));
   });
