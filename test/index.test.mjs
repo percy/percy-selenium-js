@@ -143,12 +143,8 @@ describe('percyScreenshot', () => {
     const considerElement = { getId: () => {} };
     const mockElement = spyOn(element, 'getId').and.callFake(() => { return new Promise((resolve, _) => resolve('123')); });
     const mockConsiderElement = spyOn(considerElement, 'getId').and.callFake(() => { return new Promise((resolve, _) => resolve('456')); });
-    const mockresponse = {
-      success: 'true',
-      data: 'sync_data'
-    }
     const mockedPostCall = spyOn(percySnapshot, 'request').and.callFake(() => mockresponse);
-    const response = await percyScreenshot(driver, 'Snapshot 2', { ignoreRegionSeleniumElements: [element], considerRegionSeleniumElements: [considerElement] });
+    await percyScreenshot(driver, 'Snapshot 2', { ignoreRegionSeleniumElements: [element], considerRegionSeleniumElements: [considerElement] });
 
     expect(mockElement).toHaveBeenCalled();
     expect(mockConsiderElement).toHaveBeenCalled();
@@ -158,7 +154,17 @@ describe('percyScreenshot', () => {
         consider_region_selenium_elements: ['456']
       }
     }));
-    expect(response).toEqual(mockresponse.data);
+  });
+
+  it('receive data object from CLI response', async() => {
+    const mockResponse = {
+      success: true,
+      body: { data: { some_data: 'some_data ' } }
+    }
+
+    spyOn(percySnapshot, 'request').and.callFake(() => mockResponse);
+    const response = await percyScreenshot(driver, 'Snapshot 1');
+    expect(response).toEqual(mockResponse.body.data);
   });
 
   it('posts driver details to the local percy server with ignore and consider region and sync', async () => {

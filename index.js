@@ -43,7 +43,7 @@ module.exports = async function percySnapshot(driver, name, options) {
       name,
       url
     });
-    return response.data;
+    return response?.body?.data;
   } catch (error) {
     // Handle errors
     log.error(`Could not take DOM snapshot "${name}"`);
@@ -108,7 +108,7 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
       snapshotName: name,
       options
     });
-    return response.data;
+    return response?.body?.data;
   } catch (error) {
     // Handle errors
     log.error(`Could not take Screenshot "${name}"`);
