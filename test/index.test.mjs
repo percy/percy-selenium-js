@@ -143,7 +143,7 @@ describe('percyScreenshot', () => {
     const considerElement = { getId: () => {} };
     const mockElement = spyOn(element, 'getId').and.callFake(() => { return new Promise((resolve, _) => resolve('123')); });
     const mockConsiderElement = spyOn(considerElement, 'getId').and.callFake(() => { return new Promise((resolve, _) => resolve('456')); });
-    const mockedPostCall = spyOn(percySnapshot, 'request').and.callFake(() => mockresponse);
+    const mockedPostCall = spyOn(percySnapshot, 'request').and.callFake(() => {});
     await percyScreenshot(driver, 'Snapshot 2', { ignoreRegionSeleniumElements: [element], considerRegionSeleniumElements: [considerElement] });
 
     expect(mockElement).toHaveBeenCalled();
