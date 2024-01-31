@@ -35,7 +35,7 @@ module.exports = async function percySnapshot(driver, name, options) {
     }), options);
 
     // Post the DOM to the snapshot endpoint with snapshot options and other info
-    await utils.postSnapshot({
+    const response = await utils.postSnapshot({
       ...options,
       environmentInfo: ENV_INFO,
       clientInfo: CLIENT_INFO,
@@ -43,6 +43,7 @@ module.exports = async function percySnapshot(driver, name, options) {
       name,
       url
     });
+    return response?.body?.data;
   } catch (error) {
     // Handle errors
     log.error(`Could not take DOM snapshot "${name}"`);
@@ -51,7 +52,7 @@ module.exports = async function percySnapshot(driver, name, options) {
 };
 
 module.exports.request = async function request(data) {
-  await utils.captureAutomateScreenshot(data);
+  return await utils.captureAutomateScreenshot(data);
 }; // To mock in test case
 
 const getElementIdFromElements = async function getElementIdFromElements(elements) {
@@ -98,7 +99,7 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
     }
 
     // Post the driver details to the automate screenshot endpoint with snapshot options and other info
-    await module.exports.request({
+    const response = await module.exports.request({
       environmentInfo: ENV_INFO,
       clientInfo: CLIENT_INFO,
       sessionId: await driverData.getSessionId(),
@@ -107,6 +108,7 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
       snapshotName: name,
       options
     });
+    return response?.body?.data;
   } catch (error) {
     // Handle errors
     log.error(`Could not take Screenshot "${name}"`);
