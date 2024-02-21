@@ -75,7 +75,7 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
   if (!name) throw new Error('The `name` argument is required.');
   if (!(await module.exports.isPercyEnabled())) return;
   let log = utils.logger('selenium-webdriver');
-  if (utils.percy?.type === 'web') {
+  if (utils.percy?.type !== 'automate') {
     throw new Error('Invalid function call - percyScreenshot(). Please use percySnapshot() function for taking screenshot. percyScreenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing');
   }
 
