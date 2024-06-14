@@ -19,7 +19,7 @@ module.exports = async function percySnapshot(driver, name, options) {
   if (!(await module.exports.isPercyEnabled())) return;
   let log = utils.logger('selenium-webdriver');
   if (utils.percy?.type === 'automate') {
-    throw new Error('Invalid function call - percySnapshot(). Please use percyScreenshot() function while using Percy with Automate. For more information on usage of percyScreenshot, refer https://docs.percy.io/docs/integrate-functional-testing-with-visual-testing');
+    throw new Error('Invalid function call - percySnapshot(). Please use percyScreenshot() function while using Percy with Automate. For more information on usage of percyScreenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual');
   }
 
   try {
@@ -76,7 +76,7 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
   if (!(await module.exports.isPercyEnabled())) return;
   let log = utils.logger('selenium-webdriver');
   if (utils.percy?.type !== 'automate') {
-    throw new Error('Invalid function call - percyScreenshot(). Please use percySnapshot() function for taking screenshot. percyScreenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing');
+    throw new Error('Invalid function call - percyScreenshot(). Please use percySnapshot() function for taking screenshot. percyScreenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://www.browserstack.com/docs/percy/integrate/overview');
   }
 
   try {

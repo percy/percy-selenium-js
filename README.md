@@ -64,7 +64,7 @@ $ percy exec -- node script.js
 
 - `driver` (**required**) - A `selenium-webdriver` driver instance
 - `name` (**required**) - The snapshot name; must be unique to each snapshot
-- `options` - [See per-snapshot configuration options](https://docs.percy.io/docs/cli-configuration#per-snapshot-configuration)
+- `options` - [See per-snapshot configuration options](https://www.browserstack.com/docs/percy/take-percy-snapshots/overview#per-snapshot-configuration)
 
 ## Upgrading
 
@@ -182,4 +182,4 @@ $ percy exec -- [js test command]
 [percy] Done!
 ```
 
-Refer to docs here: [Percy on Automate](https://docs.percy.io/docs/integrate-functional-testing-with-visual-testing)
+Refer to docs here: [Percy on Automate](https://www.browserstack.com/docs/percy/integrate/functional-and-visual)

@@ -75,7 +75,7 @@ describe('percySnapshot', () => {
     } catch (e) {
       error = e.message;
     }
-    expect(error).toEqual('Invalid function call - percySnapshot(). Please use percyScreenshot() function while using Percy with Automate. For more information on usage of percyScreenshot, refer https://docs.percy.io/docs/integrate-functional-testing-with-visual-testing');
+    expect(error).toEqual('Invalid function call - percySnapshot(). Please use percyScreenshot() function while using Percy with Automate. For more information on usage of percyScreenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual');
   });
 });
 
@@ -156,11 +156,11 @@ describe('percyScreenshot', () => {
     }));
   });
 
-  it('receive data object from CLI response', async() => {
+  it('receive data object from CLI response', async () => {
     const mockResponse = {
       success: true,
       body: { data: { some_data: 'some_data ' } }
-    }
+    };
 
     spyOn(percySnapshot, 'request').and.callFake(() => mockResponse);
     const response = await percyScreenshot(driver, 'Snapshot 1');
@@ -216,6 +216,6 @@ describe('percyScreenshot', () => {
     } catch (e) {
       error = e.message;
     }
-    expect(error).toEqual('Invalid function call - percyScreenshot(). Please use percySnapshot() function for taking screenshot. percyScreenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing');
+    expect(error).toEqual('Invalid function call - percyScreenshot(). Please use percySnapshot() function for taking screenshot. percyScreenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://www.browserstack.com/docs/percy/integrate/overview');
   });
 });
