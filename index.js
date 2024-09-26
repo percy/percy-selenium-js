@@ -12,8 +12,121 @@ const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 const utils = require('@percy/sdk-utils');
 const { DriverMetadata } = require('./driverMetadata');
 
+const CDP_SUPPORT_SELENIUM = seleniumPkg.version && !isNaN(seleniumPkg.version.charAt(0)) && parseInt(seleniumPkg.version.charAt(0), 10) >= 4;
+
+const getWidthsForMultiDOM = (width, widths, eligibleWidths) => {
+  let userPassedWidths = [];
+  if (widths.length !== 0) userPassedWidths = widths;
+  if (width) userPassedWidths = [width];
+
+  // Deep copy of eligible mobile widths
+  let allWidths = [...eligibleWidths?.mobile];
+  if (userPassedWidths.length !== 0) {
+    allWidths = allWidths.concat(userPassedWidths);
+  } else {
+    allWidths = allWidths.concat(eligibleWidths.config);
+  }
+
+  return [...new Set(allWidths)]; // Removing duplicates
+};
+
+async function changeWindowDimensionAndWait(driver, width, height, resizeCount) {
+  try {
+    if (CDP_SUPPORT_SELENIUM && driver?.capabilities?.browserName === 'chrome') {
+      await driver?.executeCdpCommand('Emulation.setDeviceMetricsOverride', {
+        height,
+        width,
+        deviceScaleFactor: 1,
+        mobile: false
+      });
+    } else {
+      await driver.manage().window().setRect({ width, height });
+    }
+  } catch (e) {
+    console.log(`Resizing using CDP failed, falling back to driver resize for width ${width}`, e);
+    await driver.manage().window().setRect({ width, height });
+  }
+
+  try {
+    await driver.wait(async () => {
+      await driver.executeScript('return window.resizeCount') === resizeCount
+    }, 1000);
+  } catch (e) {
+    if (e.name === 'TimeoutError') {
+      console.log(`Timed out waiting for window resize event for width ${width}`);
+    }
+  }
+}
+
+// Captures responsive DOM snapshots across different widths
+async function captureResponsiveDOM(driver, cookies, options = {}) {
+  const widths = getWidthsForMultiDOM(options.width, options.widths || [], utils.percy?.widths);
+  const domSnapshots = [];
+  const windowSize = await driver.manage().window().getRect();
+  let currentWidth = windowSize.width; let currentHeight = windowSize.height;
+  let lastWindowWidth = currentWidth;
+  let resizeCount = 0;
+
+  // Setup the resizeCount listener if not present
+  await driver.executeScript(`
+      if (!window.resizeCount) {
+          let resizeTimeout = false;
+          window.addEventListener('resize', () => {
+              if (resizeTimeout) clearTimeout(resizeTimeout);
+              resizeTimeout = setTimeout(() => window.resizeCount++, 100);
+          });
+      }
+      window.resizeCount = 0;
+  `);
+
+  for (let width of widths) {
+    if (lastWindowWidth !== width) {
+      resizeCount++;
+      await changeWindowDimensionAndWait(driver, width, currentHeight, resizeCount);
+      lastWindowWidth = width;
+    }
+
+    if (process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) {
+      await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME)));
+    }
+
+    let domSnapshot = await captureSerializedDOM(driver, cookies, options);
+    domSnapshot.width = width;
+    domSnapshots.push(domSnapshot);
+  }
+
+  // Reset window size back to original dimensions
+  await changeWindowDimensionAndWait(driver, currentWidth, currentHeight, resizeCount + 1);
+  return domSnapshots;
+}
+
+async function captureSerializedDOM(driver, options) {
+  let { domSnapshot } = await driver.executeScript(options => ({
+    /* eslint-disable-next-line no-undef */
+    domSnapshot: PercyDOM.serialize(options)
+  }), options);
+  return domSnapshot;
+}
+
+async function captureDOM(driver, options) {
+  const responsiveSnapshotCapture = options?.responsive_snapshot_capture || options?.responsiveSnapshotCapture || false;
+  if (responsiveSnapshotCapture) {
+    return await captureResponsiveDOM(driver, options);
+  } else {
+    return await captureSerializedDOM(driver, options);
+  }
+}
+
+async function currentURL(driver, options) {
+  let { url } = await driver.executeScript(options => ({
+    /* eslint-disable-next-line no-undef */
+    url: document.URL
+  }), options);
+  return url;
+}
+
 // Take a DOM snapshot and post it to the snapshot endpoint
-module.exports = async function percySnapshot(driver, name, options) {
+const percySnapshot = async function percySnapshot(driver, name, options) {
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
   if (!(await module.exports.isPercyEnabled())) return;
@@ -25,15 +138,10 @@ module.exports = async function percySnapshot(driver, name, options) {
   try {
     // Inject the DOM serialization script
     await driver.executeScript(await utils.fetchPercyDOM());
-
     // Serialize and capture the DOM
     /* istanbul ignore next: no instrumenting injected code */
-    let { domSnapshot, url } = await driver.executeScript(options => ({
-      /* eslint-disable-next-line no-undef */
-      domSnapshot: PercyDOM.serialize(options),
-      url: document.URL
-    }), options);
-
+    let domSnapshot = await captureDOM(driver, options);
+    let url = await currentURL(driver, options);
     // Post the DOM to the snapshot endpoint with snapshot options and other info
     const response = await utils.postSnapshot({
       ...options,
@@ -50,6 +158,9 @@ module.exports = async function percySnapshot(driver, name, options) {
     log.error(error);
   }
 };
+
+module.exports = percySnapshot;
+module.exports.percySnapshot = percySnapshot;
 
 module.exports.request = async function request(data) {
   return await utils.captureAutomateScreenshot(data);
