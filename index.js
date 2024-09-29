@@ -49,7 +49,7 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
 
   try {
     await driver.wait(async () => {
-      await driver.executeScript('return window.resizeCount') === resizeCount
+      await driver.executeScript('return window.resizeCount') === resizeCount;
     }, 1000);
   } catch (e) {
     if (e.name === 'TimeoutError') {
