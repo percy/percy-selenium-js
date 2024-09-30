@@ -62,7 +62,7 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
 }
 
 // Captures responsive DOM snapshots across different widths
-async function captureResponsiveDOM(driver, options = {}, cookies = {}) {
+async function captureResponsiveDOM(driver, options = {}) {
   const widths = getWidthsForMultiDOM(options.widths || [], utils.percy?.widths);
   const domSnapshots = [];
   const windowSize = await driver.manage().window().getRect();
@@ -112,7 +112,7 @@ async function captureSerializedDOM(driver, options) {
   return domSnapshot;
 }
 
-async function captureDOM(driver, options) {
+async function captureDOM(driver, options = {}) {
   const responsiveSnapshotCapture = options?.responsive_snapshot_capture || options?.responsiveSnapshotCapture || false;
   if (responsiveSnapshotCapture) {
     return await captureResponsiveDOM(driver, options);
