@@ -7,10 +7,30 @@ const { percyScreenshot } = percySnapshot;
 
 describe('percySnapshot', () => {
   let driver;
+  let mockedDriver;
 
   beforeAll(async function() {
     driver = await new webdriver.Builder()
       .forBrowser('firefox').build();
+
+    mockedDriver = {
+      capabilities: {
+        browserName: 'chrome'
+      },
+      executeCdpCommand: jasmine.createSpy('executeCdpCommand').and.returnValue(Promise.resolve()),
+      manage: jasmine.createSpy('manage').and.returnValue({
+        window: jasmine.createSpy('window').and.returnValue({
+          setRect: jasmine.createSpy('setRect').and.returnValue(Promise.resolve()),
+          getRect: jasmine.createSpy('getRect').and.returnValue(Promise.resolve({
+            width: 1024,
+            height: 768
+          }))
+        })
+      }),
+      executeScript: jasmine.createSpy('executeScript').and.returnValue(Promise.resolve(1)),
+      wait: jasmine.createSpy('wait').and.returnValue(Promise.resolve(1))
+    };
+    global.CDP_SUPPORT_SELENIUM = true;
   });
 
   afterAll(async () => {
@@ -86,6 +106,70 @@ describe('percySnapshot', () => {
       jasmine.stringMatching(/clientInfo: @percy\/selenium-webdriver\/.+/),
       jasmine.stringMatching(/environmentInfo: selenium-webdriver\/.+/)
     ]));
+  });
+
+  it('posts snapshots to percy server with responsiveSnapshotCapture with mobile', async () => {
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.widths = { mobile: [1125], widths: [375, 1280] };
+
+    await percySnapshot(driver, 'Snapshot 1', { responsiveSnapshotCapture: true });
+
+    expect(await helpers.get('logs')).toEqual(jasmine.arrayContaining([
+      'Snapshot found: Snapshot 1',
+      `- url: ${helpers.testSnapshotURL}`,
+      jasmine.stringMatching(/clientInfo: @percy\/selenium-webdriver\/.+/),
+      jasmine.stringMatching(/environmentInfo: selenium-webdriver\/.+/)
+    ]));
+  });
+
+  it('should call executeCdpCommand for chrome and not setRect', async () => {
+    spyOn(mockedDriver, 'executeCdpCommand').and.callThrough();
+    spyOn(mockedDriver.manage().window(), 'setRect').and.callThrough();
+    utils.percy.widths = { mobile: [1125], widths: [375, 1280] };
+
+    await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
+
+    expect(mockedDriver.executeCdpCommand).toHaveBeenCalledWith('Emulation.setDeviceMetricsOverride', {
+      height: jasmine.any(Number),
+      width: jasmine.any(Number),
+      deviceScaleFactor: 1,
+      mobile: false
+    });
+    expect(mockedDriver.manage().window().setRect).not.toHaveBeenCalled();
+  });
+
+  it('should fall back to setRect when executeCdpCommand fails', async () => {
+    const windowManager = mockedDriver.manage().window();
+    spyOn(mockedDriver, 'executeCdpCommand').and.rejectWith(new Error('CDP Command Failed'));
+    spyOn(windowManager, 'setRect').and.callThrough();
+    utils.percy.widths = { mobile: [1125], widths: [375, 1280] };
+
+    await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
+
+    expect(mockedDriver.executeCdpCommand).toHaveBeenCalled();
+    expect(windowManager.setRect).toHaveBeenCalledWith({
+      width: jasmine.any(Number),
+      height: jasmine.any(Number)
+    });
+  });
+
+  it('should log a timeout error when resizeCount fails', async () => {
+    spyOn(mockedDriver, 'executeCdpCommand').and.rejectWith(new Error('TimeoutError'));
+    utils.percy.widths = { mobile: [1125], widths: [375, 1280, 1280] };
+
+    await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
+
+    expect(mockedDriver.executeScript).not.toHaveBeenCalledWith('return window.resizeCount');
+  });
+
+  it('should wait if RESPONSIVE_CAPTURE_SLEEP_TIME is set', async () => {
+    process.env.RESPONSIVE_CAPTURE_SLEEP_TIME = '1000';
+    spyOn(global, 'setTimeout').and.callThrough();
+
+    await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
+
+    expect(setTimeout).toHaveBeenCalled();
+    delete process.env.RESPONSIVE_CAPTURE_SLEEP_TIME;
   });
 });
 

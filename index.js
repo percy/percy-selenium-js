@@ -52,12 +52,11 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
 
   try {
     await driver.wait(async () => {
+      /* istanbul ignore next: no instrumenting injected code */
       await driver.executeScript('return window.resizeCount') === resizeCount;
     }, 1000);
   } catch (e) {
-    if (e.name === 'TimeoutError') {
-      log.warn(`Timed out waiting for window resize event for width ${width}`);
-    }
+    log.warn(`Error while window resize event for width ${width}`, e);
   }
 }
 
@@ -71,6 +70,7 @@ async function captureResponsiveDOM(driver, options = {}) {
   let resizeCount = 0;
 
   // Setup the resizeCount listener if not present
+  /* istanbul ignore next: no instrumenting injected code */
   await driver.executeScript(`
       if (!window.resizeCount) {
           let resizeTimeout = false;
@@ -104,6 +104,7 @@ async function captureResponsiveDOM(driver, options = {}) {
 }
 
 async function captureSerializedDOM(driver, options) {
+  /* istanbul ignore next: no instrumenting injected code */
   let { domSnapshot } = await driver.executeScript(options => ({
     /* eslint-disable-next-line no-undef */
     domSnapshot: PercyDOM.serialize(options)
@@ -112,8 +113,12 @@ async function captureSerializedDOM(driver, options) {
   return domSnapshot;
 }
 
+function isResponsiveDOMCaptureValid(options) {
+  return options?.responsive_snapshot_capture || options?.responsiveSnapshotCapture || false;
+}
+
 async function captureDOM(driver, options = {}) {
-  const responsiveSnapshotCapture = options?.responsive_snapshot_capture || options?.responsiveSnapshotCapture || false;
+  const responsiveSnapshotCapture = isResponsiveDOMCaptureValid(options);
   if (responsiveSnapshotCapture) {
     return await captureResponsiveDOM(driver, options);
   } else {
@@ -122,6 +127,7 @@ async function captureDOM(driver, options = {}) {
 }
 
 async function currentURL(driver, options) {
+  /* istanbul ignore next: no instrumenting injected code */
   let { url } = await driver.executeScript(options => ({
     /* eslint-disable-next-line no-undef */
     url: document.URL
