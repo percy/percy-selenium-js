@@ -77,6 +77,16 @@ describe('percySnapshot', () => {
     }
     expect(error).toEqual('Invalid function call - percySnapshot(). Please use percyScreenshot() function while using Percy with Automate. For more information on usage of percyScreenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual');
   });
+
+  it('posts snapshots to percy server with responsiveSnapshotCapture', async () => {
+    await percySnapshot(driver, 'Snapshot 1', { responsiveSnapshotCapture: true, widths: [375, 1280] });
+    expect(await helpers.get('logs')).toEqual(jasmine.arrayContaining([
+      'Snapshot found: Snapshot 1',
+      `- url: ${helpers.testSnapshotURL}`,
+      jasmine.stringMatching(/clientInfo: @percy\/selenium-webdriver\/.+/),
+      jasmine.stringMatching(/environmentInfo: selenium-webdriver\/.+/)
+    ]));
+  });
 });
 
 describe('percyScreenshot', () => {

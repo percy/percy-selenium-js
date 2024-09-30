@@ -11,23 +11,26 @@ const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 const utils = require('@percy/sdk-utils');
 const { DriverMetadata } = require('./driverMetadata');
+const log = utils.logger('selenium-webdriver');
 
 const CDP_SUPPORT_SELENIUM = seleniumPkg.version && !isNaN(seleniumPkg.version.charAt(0)) && parseInt(seleniumPkg.version.charAt(0), 10) >= 4;
 
-const getWidthsForMultiDOM = (width, widths, eligibleWidths) => {
+const getWidthsForMultiDOM = (widths, eligibleWidths) => {
   let userPassedWidths = [];
   if (widths.length !== 0) userPassedWidths = widths;
-  if (width) userPassedWidths = [width];
 
   // Deep copy of eligible mobile widths
-  let allWidths = [...eligibleWidths?.mobile];
+  let allWidths = [];
+  if (eligibleWidths?.mobile?.length !== 0) {
+    allWidths = allWidths.concat(eligibleWidths?.mobile);
+  }
   if (userPassedWidths.length !== 0) {
     allWidths = allWidths.concat(userPassedWidths);
   } else {
     allWidths = allWidths.concat(eligibleWidths.config);
   }
 
-  return [...new Set(allWidths)]; // Removing duplicates
+  return [...new Set(allWidths)].filter(e => e); // Removing duplicates
 };
 
 async function changeWindowDimensionAndWait(driver, width, height, resizeCount) {
@@ -43,7 +46,7 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
       await driver.manage().window().setRect({ width, height });
     }
   } catch (e) {
-    console.log(`Resizing using CDP failed, falling back to driver resize for width ${width}`, e);
+    log.warn(`Resizing using CDP failed, falling back to driver resize for width ${width}`, e);
     await driver.manage().window().setRect({ width, height });
   }
 
@@ -53,14 +56,14 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
     }, 1000);
   } catch (e) {
     if (e.name === 'TimeoutError') {
-      console.log(`Timed out waiting for window resize event for width ${width}`);
+      log.warn(`Timed out waiting for window resize event for width ${width}`);
     }
   }
 }
 
 // Captures responsive DOM snapshots across different widths
-async function captureResponsiveDOM(driver, cookies, options = {}) {
-  const widths = getWidthsForMultiDOM(options.width, options.widths || [], utils.percy?.widths);
+async function captureResponsiveDOM(driver, options = {}, cookies = {}) {
+  const widths = getWidthsForMultiDOM(options.widths || [], utils.percy?.widths);
   const domSnapshots = [];
   const windowSize = await driver.manage().window().getRect();
   let currentWidth = windowSize.width; let currentHeight = windowSize.height;
@@ -90,7 +93,7 @@ async function captureResponsiveDOM(driver, cookies, options = {}) {
       await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME)));
     }
 
-    let domSnapshot = await captureSerializedDOM(driver, cookies, options);
+    let domSnapshot = await captureSerializedDOM(driver, options);
     domSnapshot.width = width;
     domSnapshots.push(domSnapshot);
   }
@@ -105,6 +108,7 @@ async function captureSerializedDOM(driver, options) {
     /* eslint-disable-next-line no-undef */
     domSnapshot: PercyDOM.serialize(options)
   }), options);
+  domSnapshot.cookies = await driver.manage().getCookies();
   return domSnapshot;
 }
 
@@ -130,7 +134,6 @@ const percySnapshot = async function percySnapshot(driver, name, options) {
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
   if (!(await module.exports.isPercyEnabled())) return;
-  let log = utils.logger('selenium-webdriver');
   if (utils.percy?.type === 'automate') {
     throw new Error('Invalid function call - percySnapshot(). Please use percyScreenshot() function while using Percy with Automate. For more information on usage of percyScreenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual');
   }
@@ -185,7 +188,6 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
   if (!(await module.exports.isPercyEnabled())) return;
-  let log = utils.logger('selenium-webdriver');
   if (utils.percy?.type !== 'automate') {
     throw new Error('Invalid function call - percyScreenshot(). Please use percySnapshot() function for taking screenshot. percyScreenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://www.browserstack.com/docs/percy/integrate/overview');
   }
