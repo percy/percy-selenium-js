@@ -13,12 +13,7 @@ const utils = require('@percy/sdk-utils');
 const { DriverMetadata } = require('./driverMetadata');
 const log = utils.logger('selenium-webdriver');
 
-const CDP_SUPPORT_SELENIUM = seleniumPkg.version && !isNaN(seleniumPkg.version.charAt(0)) && parseInt(seleniumPkg.version.charAt(0), 10) >= 4;
-
-const getWidthsForMultiDOM = (widths, eligibleWidths) => {
-  let userPassedWidths = [];
-  if (widths.length !== 0) userPassedWidths = widths;
-
+const getWidthsForMultiDOM = (userPassedWidths, eligibleWidths) => {
   // Deep copy of eligible mobile widths
   let allWidths = [];
   if (eligibleWidths?.mobile?.length !== 0) {
@@ -35,7 +30,7 @@ const getWidthsForMultiDOM = (widths, eligibleWidths) => {
 
 async function changeWindowDimensionAndWait(driver, width, height, resizeCount) {
   try {
-    if (CDP_SUPPORT_SELENIUM && driver?.capabilities?.browserName === 'chrome') {
+    if (typeof driver?.executeCdpCommand === 'function' && driver?.capabilities?.browserName === 'chrome') {
       await driver?.executeCdpCommand('Emulation.setDeviceMetricsOverride', {
         height,
         width,
@@ -68,20 +63,9 @@ async function captureResponsiveDOM(driver, options) {
   let currentWidth = windowSize.width; let currentHeight = windowSize.height;
   let lastWindowWidth = currentWidth;
   let resizeCount = 0;
-
   // Setup the resizeCount listener if not present
   /* istanbul ignore next: no instrumenting injected code */
-  await driver.executeScript(`
-      if (!window.resizeCount) {
-          let resizeTimeout = false;
-          window.addEventListener('resize', () => {
-              if (resizeTimeout) clearTimeout(resizeTimeout);
-              resizeTimeout = setTimeout(() => window.resizeCount++, 100);
-          });
-      }
-      window.resizeCount = 0;
-  `);
-
+  await driver.executeScript('PercyDOM.waitForResize()');
   for (let width of widths) {
     if (lastWindowWidth !== width) {
       resizeCount++;
@@ -90,7 +74,7 @@ async function captureResponsiveDOM(driver, options) {
     }
 
     if (process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) {
-      await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME)));
+      await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) * 1000));
     }
 
     let domSnapshot = await captureSerializedDOM(driver, options);
@@ -109,11 +93,15 @@ async function captureSerializedDOM(driver, options) {
     /* eslint-disable-next-line no-undef */
     domSnapshot: PercyDOM.serialize(options)
   }), options);
-  domSnapshot.cookies = await driver.manage().getCookies();
+  /* istanbul ignore next: no instrumenting injected code */
+  domSnapshot.cookies = await driver.manage().getCookies() || {};
   return domSnapshot;
 }
 
 function isResponsiveDOMCaptureValid(options) {
+  if (utils.percy?.config?.percy?.deferUploads) {
+    return false;
+  }
   return options?.responsive_snapshot_capture || options?.responsiveSnapshotCapture || false;
 }
 

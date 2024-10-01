@@ -25,7 +25,8 @@ describe('percySnapshot', () => {
             width: 1024,
             height: 768
           }))
-        })
+        }),
+        getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve({}))
       }),
       executeScript: jasmine.createSpy('executeScript').and.returnValue(Promise.resolve(1)),
       wait: jasmine.createSpy('wait').and.returnValue(Promise.resolve(1))
@@ -101,7 +102,6 @@ describe('percySnapshot', () => {
   it('posts snapshots to percy server with responsiveSnapshotCapture true', async () => {
     await driver.manage().window().setRect({ width: 1380, height: 1024 });
     await percySnapshot(driver, 'Snapshot 1', { responsiveSnapshotCapture: true, widths: [1380] });
-
     expect(await helpers.get('logs')).toEqual(jasmine.arrayContaining([
       'Snapshot found: Snapshot 1',
       `- url: ${helpers.testSnapshotURL}`,
@@ -134,6 +134,18 @@ describe('percySnapshot', () => {
       jasmine.stringMatching(/clientInfo: @percy\/selenium-webdriver\/.+/),
       jasmine.stringMatching(/environmentInfo: selenium-webdriver\/.+/)
     ]));
+  });
+
+  it('multiDOM should not run when deferUploads is true', async () => {
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.config = { percy: { deferUploads: true } };
+    spyOn(mockedDriver, 'executeCdpCommand').and.callThrough();
+    spyOn(mockedDriver.manage().window(), 'setRect').and.callThrough();
+
+    await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
+
+    expect(mockedDriver.executeCdpCommand).not.toHaveBeenCalled();
+    expect(mockedDriver.manage().window().setRect).not.toHaveBeenCalled();
   });
 
   it('should call executeCdpCommand for chrome and not setRect', async () => {
@@ -177,7 +189,7 @@ describe('percySnapshot', () => {
   });
 
   it('should wait if RESPONSIVE_CAPTURE_SLEEP_TIME is set', async () => {
-    process.env.RESPONSIVE_CAPTURE_SLEEP_TIME = '1000';
+    process.env.RESPONSIVE_CAPTURE_SLEEP_TIME = 1;
     spyOn(global, 'setTimeout').and.callThrough();
 
     await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
