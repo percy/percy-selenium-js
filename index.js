@@ -94,7 +94,7 @@ async function captureSerializedDOM(driver, options) {
     domSnapshot: PercyDOM.serialize(options)
   }), options);
   /* istanbul ignore next: no instrumenting injected code */
-  domSnapshot.cookies = await driver.manage().getCookies() || {};
+  domSnapshot.cookies = await driver.manage().getCookies() || [];
   return domSnapshot;
 }
 
