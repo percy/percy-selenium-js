@@ -102,7 +102,12 @@ function isResponsiveDOMCaptureValid(options) {
   if (utils.percy?.config?.percy?.deferUploads) {
     return false;
   }
-  return options?.responsive_snapshot_capture || options?.responsiveSnapshotCapture || false;
+  return (
+    options?.responsive_snapshot_capture ||
+    options?.responsiveSnapshotCapture ||
+    utils.percy?.config?.snapshot?.responsiveSnapshotCapture ||
+    false
+  );
 }
 
 async function captureDOM(driver, options = {}) {
