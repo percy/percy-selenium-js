@@ -14,10 +14,8 @@ describe('percySnapshot', () => {
       .forBrowser('firefox').build();
 
     mockedDriver = {
-      capabilities: {
-        browserName: 'chrome'
-      },
-      executeCdpCommand: jasmine.createSpy('executeCdpCommand').and.returnValue(Promise.resolve()),
+      getCapabilities: jasmine.createSpy('sendDevToolsCommand').and.returnValue({ getBrowserName: () => 'chrome'}),
+      sendDevToolsCommand: jasmine.createSpy('sendDevToolsCommand').and.returnValue(Promise.resolve()),
       manage: jasmine.createSpy('manage').and.returnValue({
         window: jasmine.createSpy('window').and.returnValue({
           setRect: jasmine.createSpy('setRect').and.returnValue(Promise.resolve()),
@@ -139,23 +137,23 @@ describe('percySnapshot', () => {
   it('multiDOM should not run when deferUploads is true', async () => {
     spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
     utils.percy.config = { percy: { deferUploads: true } };
-    spyOn(mockedDriver, 'executeCdpCommand').and.callThrough();
+    spyOn(mockedDriver, 'sendDevToolsCommand').and.callThrough();
     spyOn(mockedDriver.manage().window(), 'setRect').and.callThrough();
 
     await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
 
-    expect(mockedDriver.executeCdpCommand).not.toHaveBeenCalled();
+    expect(mockedDriver.sendDevToolsCommand).not.toHaveBeenCalled();
     expect(mockedDriver.manage().window().setRect).not.toHaveBeenCalled();
   });
 
-  it('should call executeCdpCommand for chrome and not setRect', async () => {
-    spyOn(mockedDriver, 'executeCdpCommand').and.callThrough();
+  it('should call sendDevToolsCommand for chrome and not setRect', async () => {
+    spyOn(mockedDriver, 'sendDevToolsCommand').and.callThrough();
     spyOn(mockedDriver.manage().window(), 'setRect').and.callThrough();
     utils.percy.widths = { mobile: [], widths: [1280] };
 
     await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
 
-    expect(mockedDriver.executeCdpCommand).toHaveBeenCalledWith('Emulation.setDeviceMetricsOverride', {
+    expect(mockedDriver.sendDevToolsCommand).toHaveBeenCalledWith('Emulation.setDeviceMetricsOverride', {
       height: jasmine.any(Number),
       width: jasmine.any(Number),
       deviceScaleFactor: 1,
@@ -164,15 +162,15 @@ describe('percySnapshot', () => {
     expect(mockedDriver.manage().window().setRect).not.toHaveBeenCalled();
   });
 
-  it('should fall back to setRect when executeCdpCommand fails', async () => {
+  it('should fall back to setRect when sendDevToolsCommand fails', async () => {
     const windowManager = mockedDriver.manage().window();
-    spyOn(mockedDriver, 'executeCdpCommand').and.rejectWith(new Error('CDP Command Failed'));
+    spyOn(mockedDriver, 'sendDevToolsCommand').and.rejectWith(new Error('CDP Command Failed'));
     spyOn(windowManager, 'setRect').and.callThrough();
     utils.percy.widths = { mobile: [1125], widths: [375, 1280] };
 
     await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
 
-    expect(mockedDriver.executeCdpCommand).toHaveBeenCalled();
+    expect(mockedDriver.sendDevToolsCommand).toHaveBeenCalled();
     expect(windowManager.setRect).toHaveBeenCalledWith({
       width: jasmine.any(Number),
       height: jasmine.any(Number)
@@ -180,7 +178,7 @@ describe('percySnapshot', () => {
   });
 
   it('should log a timeout error when resizeCount fails', async () => {
-    spyOn(mockedDriver, 'executeCdpCommand').and.rejectWith(new Error('TimeoutError'));
+    spyOn(mockedDriver, 'sendDevToolsCommand').and.rejectWith(new Error('TimeoutError'));
     utils.percy.widths = { mobile: [1125], widths: [375, 1280, 1280] };
 
     await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });

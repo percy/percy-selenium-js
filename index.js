@@ -30,8 +30,9 @@ const getWidthsForMultiDOM = (userPassedWidths, eligibleWidths) => {
 
 async function changeWindowDimensionAndWait(driver, width, height, resizeCount) {
   try {
-    if (typeof driver?.executeCdpCommand === 'function' && driver?.capabilities?.browserName === 'chrome') {
-      await driver?.executeCdpCommand('Emulation.setDeviceMetricsOverride', {
+    const caps = await driver.getCapabilities();
+    if (typeof driver?.sendDevToolsCommand === 'function' && caps.getBrowserName() === 'chrome') {
+      await driver?.sendDevToolsCommand('Emulation.setDeviceMetricsOverride', {
         height,
         width,
         deviceScaleFactor: 1,
@@ -41,7 +42,7 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
       await driver.manage().window().setRect({ width, height });
     }
   } catch (e) {
-    log.warn(`Resizing using CDP failed, falling back to driver resize for width ${width}`, e);
+    log.debug(`Resizing using CDP failed, falling back to driver resize for width ${width}`, e);
     await driver.manage().window().setRect({ width, height });
   }
 
@@ -51,7 +52,7 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
       await driver.executeScript('return window.resizeCount') === resizeCount;
     }, 1000);
   } catch (e) {
-    log.warn(`Error while window resize event for width ${width}`, e);
+    log.debug(`Timed out waiting for window resize event for width ${width}`, e);
   }
 }
 
