@@ -1,7 +1,7 @@
 {
   "name": "@percy/selenium-webdriver",
   "description": "Selenium client library for visual testing with Percy",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "license": "MIT",
   "author": "Perceptual Inc.",
   "repository": "https://github.com/percy/percy-selenium-js",
