@@ -4,10 +4,10 @@ export default function percySnapshot(
   browser: any,
   name: string,
   options?: SnapshotOptions
-): Promise<void>;
+): Promise<void | { [key: string]: any }>;
 
 export function percyScreenshot(
   browser: any,
   name: string,
   options?: Object
-): Promise<void>;
+): Promise<void | { [key: string]: any }>;
