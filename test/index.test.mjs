@@ -37,6 +37,7 @@ describe('percySnapshot', () => {
   });
 
   beforeEach(async () => {
+    delete process.env.PERCY_RAISE_ERROR;
     await helpers.setupTest();
     await driver.get(helpers.testSnapshotURL);
   });
@@ -195,6 +196,22 @@ describe('percySnapshot', () => {
     expect(setTimeout).toHaveBeenCalled();
     delete process.env.RESPONSIVE_CAPTURE_SLEEP_TIME;
   });
+
+  it('throw error in SDK if PERCY_RAISE_ERROR is true', async () => {
+    process.env.PERCY_RAISE_ERROR = 'true';
+    await helpers.test('error', '/percy/healthcheck');
+    let error = null;
+    try {
+      await percyScreenshot(driver, 'Snapshot 1');
+    } catch (e) {
+      error = e;
+    }
+
+    expect(helpers.logger.stderr).toEqual(jasmine.arrayContaining([
+      '[percy] Could not take Screenshot "Snapshot 1"'
+    ]));
+    expect(error).toBeInstanceOf(Error);
+  });
 });
 
 describe('percyScreenshot', () => {
@@ -220,6 +237,7 @@ describe('percyScreenshot', () => {
   });
 
   beforeEach(async () => {
+    delete process.env.PERCY_RAISE_ERROR;
     await helpers.setupTest();
     spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
     utils.percy.type = 'automate';
@@ -322,6 +340,22 @@ describe('percyScreenshot', () => {
     expect(helpers.logger.stderr).toEqual(jasmine.arrayContaining([
       '[percy] Could not take Screenshot "Snapshot 1"'
     ]));
+  });
+
+  it('throw error in SDK if PERCY_RAISE_ERROR is true', async () => {
+    process.env.PERCY_RAISE_ERROR = 'true';
+    await helpers.test('error', '/percy/automateScreenshot');
+    let error = null;
+    try {
+      await percyScreenshot(driver, 'Snapshot 1');
+    } catch (e) {
+      error = e;
+    }
+
+    expect(helpers.logger.stderr).toEqual(jasmine.arrayContaining([
+      '[percy] Could not take Screenshot "Snapshot 1"'
+    ]));
+    expect(error).toBeInstanceOf(Error);
   });
 
   it('throws error for web session', async () => {

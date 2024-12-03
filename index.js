@@ -226,6 +226,9 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
     // Handle errors
     log.error(`Could not take Screenshot "${name}"`);
     log.error(error.stack);
+    if (process.env.PERCY_RAISE_ERROR === 'true') {
+      throw error;
+    }
   }
 };
 
