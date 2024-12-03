@@ -133,7 +133,13 @@ async function currentURL(driver, options) {
 const percySnapshot = async function percySnapshot(driver, name, options) {
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
-  if (!(await module.exports.isPercyEnabled())) throw new Error('Percy is not running, disabling snapshots.');
+  if (!(await module.exports.isPercyEnabled())) {
+    if (process.env.PERCY_RAISE_ERROR === 'true') {
+      throw new Error('Percy is not running, disabling snapshots.');
+    } else {
+      return;
+    }
+  }
   if (utils.percy?.type === 'automate') {
     throw new Error('Invalid function call - percySnapshot(). Please use percyScreenshot() function while using Percy with Automate. For more information on usage of percyScreenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual');
   }
@@ -187,7 +193,13 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
 
   if (!driver) throw new Error('An instance of the selenium driver object is required.');
   if (!name) throw new Error('The `name` argument is required.');
-  if (!(await module.exports.isPercyEnabled())) throw new Error('Percy is not running, disabling snapshots.');
+  if (!(await module.exports.isPercyEnabled())) {
+    if (process.env.PERCY_RAISE_ERROR === 'true') {
+      throw new Error('Percy is not running, disabling snapshots.');
+    } else {
+      return;
+    }
+  }
   if (utils.percy?.type !== 'automate') {
     throw new Error('Invalid function call - percyScreenshot(). Please use percySnapshot() function for taking screenshot. percyScreenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://www.browserstack.com/docs/percy/integrate/overview');
   }
