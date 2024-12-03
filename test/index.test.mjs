@@ -344,16 +344,16 @@ describe('percyScreenshot', () => {
 
   it('throw error in SDK if PERCY_RAISE_ERROR is true', async () => {
     process.env.PERCY_RAISE_ERROR = 'true';
-    await helpers.test('error', '/percy/automateScreenshot');
+    spyOn(percySnapshot, 'isPercyEnabled').and.callThrough();
+    await helpers.test('error', '/percy/healthcheck');
     let error = null;
     try {
       await percyScreenshot(driver, 'Snapshot 1');
     } catch (e) {
       error = e;
     }
-
-    expect(helpers.logger.stderr).toEqual(jasmine.arrayContaining([
-      '[percy] Could not take Screenshot "Snapshot 1"'
+    expect(helpers.logger.stdout).toEqual(jasmine.arrayContaining([
+      '[percy] Percy is not running, disabling snapshots'
     ]));
     expect(error).toBeInstanceOf(Error);
   });
