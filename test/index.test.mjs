@@ -212,6 +212,21 @@ describe('percySnapshot', () => {
     ]));
     expect(error).toBeInstanceOf(Error);
   });
+
+  it('handles snapshot failures if PERCY_RAISE_ERROR is true', async () => {
+    process.env.PERCY_RAISE_ERROR = 'true';
+    await helpers.test('error', '/percy/snapshot');
+    let error = null;
+    try {
+      await percySnapshot(driver, 'Snapshot 1');
+    } catch (e) {
+      error = e;
+    }
+    expect(helpers.logger.stderr).toEqual(jasmine.arrayContaining([
+      '[percy] Could not take DOM snapshot "Snapshot 1"'
+    ]));
+    expect(error).toBeInstanceOf(Error);
+  });
 });
 
 describe('percyScreenshot', () => {
@@ -354,6 +369,21 @@ describe('percyScreenshot', () => {
     }
     expect(helpers.logger.stdout).toEqual(jasmine.arrayContaining([
       '[percy] Percy is not running, disabling snapshots'
+    ]));
+    expect(error).toBeInstanceOf(Error);
+  });
+
+  it('handles snapshot failures if PERCY_RAISE_ERROR is true', async () => {
+    process.env.PERCY_RAISE_ERROR = 'true';
+    await helpers.test('error', '/percy/automateScreenshot');
+    let error = null;
+    try {
+      await percyScreenshot(driver, 'Snapshot 1');
+    } catch (e) {
+      error = e;
+    }
+    expect(helpers.logger.stderr).toEqual(jasmine.arrayContaining([
+      '[percy] Could not take Screenshot "Snapshot 1"'
     ]));
     expect(error).toBeInstanceOf(Error);
   });

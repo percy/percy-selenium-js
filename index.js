@@ -165,6 +165,9 @@ const percySnapshot = async function percySnapshot(driver, name, options) {
     // Handle errors
     log.error(`Could not take DOM snapshot "${name}"`);
     log.error(error);
+    if (process.env.PERCY_RAISE_ERROR === 'true') {
+      throw error;
+    }
   }
 };
 
