@@ -207,8 +207,8 @@ describe('percySnapshot', () => {
       error = e;
     }
 
-    expect(helpers.logger.stderr).toEqual(jasmine.arrayContaining([
-      '[percy] Could not take Screenshot "Snapshot 1"'
+    expect(helpers.logger.stdout).toEqual(jasmine.arrayContaining([
+      '[percy] Percy is not running, disabling snapshots'
     ]));
     expect(error).toBeInstanceOf(Error);
   });
