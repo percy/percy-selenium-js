@@ -202,7 +202,7 @@ describe('percySnapshot', () => {
     await helpers.test('error', '/percy/healthcheck');
     let error = null;
     try {
-      await percyScreenshot(driver, 'Snapshot 1');
+      await percySnapshot(driver, 'Snapshot 1');
     } catch (e) {
       error = e;
     }
