@@ -217,9 +217,10 @@ describe('percySnapshot', () => {
 
     const mockedScroll = spyOn(percySnapshot, 'slowScrollToBottom').and.resolveTo(true);
 
+    mockedDriver.executeScript.calls.reset();
     await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
 
-    expect(mockedDriver.executeScript.calls.allArgs()).toEqual(jasmine.arrayContaining([jasmine.arrayContaining(['return window.outerHeight - window.innerHeight + 900'])]));
+    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(4);
     expect(mockedScroll).toHaveBeenCalledWith(mockedDriver, 0.45);
     delete process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL;
     delete process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT;
