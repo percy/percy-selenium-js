@@ -67,15 +67,27 @@ async function captureResponsiveDOM(driver, options) {
   // Setup the resizeCount listener if not present
   /* istanbul ignore next: no instrumenting injected code */
   await driver.executeScript('PercyDOM.waitForResize()');
+  let height = currentHeight;
+  if (process.env.RESPONSIVE_CAPTURE_USE_MIN_HEIGHT) {
+    height = await driver.executeScript(`return window.outerHeight - window.innerHeight + ${utils.percy?.config?.snapshot?.minHeight}`);
+  }
   for (let width of widths) {
     if (lastWindowWidth !== width) {
       resizeCount++;
-      await changeWindowDimensionAndWait(driver, width, currentHeight, resizeCount);
+      await changeWindowDimensionAndWait(driver, width, height, resizeCount);
       lastWindowWidth = width;
     }
 
     if (process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) {
       await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) * 1000));
+    }
+
+    if (process.env.RESPONSIVE_CAPTURE_SCROLL_ENABLED) {
+      let scrollSleep = 0.45;
+      if (process.env.RESPONSIVE_CAPTURE_SCROLL_TIME) {
+        scrollSleep = parseFloat(process.env.RESPONSIVE_CAPTURE_SCROLL_TIME);
+      }
+      await module.exports.slowScrollToBottom(driver, scrollSleep);
     }
 
     let domSnapshot = await captureSerializedDOM(driver, options);
@@ -251,4 +263,29 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
 // also need to define this at the end of the file or else default exports will over-ride this
 module.exports.isPercyEnabled = async function isPercyEnabled() {
   return await utils.isPercyEnabled();
+};
+
+module.exports.slowScrollToBottom = async (driver, timeInSeconds = 0.45) => {
+  let scrollHeight = Math.min(await driver.executeScript('return document.documentElement.scrollHeight'), 25000);
+  const clientHeight = await driver.executeScript('return document.documentElement.clientHeight');
+  let current = 0;
+
+  let page = 1;
+  // Break the loop if maximum scroll height 25000px is reached
+  while (scrollHeight > current && current < 25000) {
+    current = clientHeight * page;
+    page += 1;
+    await driver.executeScript(`window.scrollTo(0, ${current})`);
+    await new Promise(resolve => setTimeout(resolve, timeInSeconds * 1000));
+
+    // Recalculate scroll height for dynamically loaded pages
+    scrollHeight = await driver.executeScript('return document.documentElement.scrollHeight');
+  }
+  // Get back to top
+  await driver.executeScript('window.scrollTo(0, 0)');
+  let sleepAfterScroll = 1;
+  if (process.env.SLEEP_AFTER_SCROLL_DONE) {
+    sleepAfterScroll = parseFloat(process.env.SLEEP_AFTER_SCROLL_DONE);
+  }
+  await new Promise(resolve => setTimeout(resolve, sleepAfterScroll * 1000));
 };
