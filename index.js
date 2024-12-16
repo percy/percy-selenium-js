@@ -68,7 +68,7 @@ async function captureResponsiveDOM(driver, options) {
   /* istanbul ignore next: no instrumenting injected code */
   await driver.executeScript('PercyDOM.waitForResize()');
   let height = currentHeight;
-  if (process.env.RESPONSIVE_CAPTURE_USE_MIN_HEIGHT) {
+  if (process.env.PERCY_RESPONSIVE_CAPTURE_USE_MIN_HEIGHT) {
     height = await driver.executeScript(`return window.outerHeight - window.innerHeight + ${utils.percy?.config?.snapshot?.minHeight}`);
   }
   for (let width of widths) {
@@ -82,10 +82,10 @@ async function captureResponsiveDOM(driver, options) {
       await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) * 1000));
     }
 
-    if (process.env.RESPONSIVE_CAPTURE_SCROLL_ENABLED) {
+    if (process.env.PERCY_RESPONSIVE_CAPTURE_SCROLL_ENABLED) {
       let scrollSleep = 0.45;
-      if (process.env.RESPONSIVE_CAPTURE_SCROLL_TIME) {
-        scrollSleep = parseFloat(process.env.RESPONSIVE_CAPTURE_SCROLL_TIME);
+      if (process.env.PERCY_RESPONSIVE_CAPTURE_SCROLL_TIME) {
+        scrollSleep = parseFloat(process.env.PERCY_RESPONSIVE_CAPTURE_SCROLL_TIME);
       }
       await module.exports.slowScrollToBottom(driver, scrollSleep);
     }
@@ -284,8 +284,8 @@ module.exports.slowScrollToBottom = async (driver, timeInSeconds = 0.45) => {
   // Get back to top
   await driver.executeScript('window.scrollTo(0, 0)');
   let sleepAfterScroll = 1;
-  if (process.env.SLEEP_AFTER_SCROLL_DONE) {
-    sleepAfterScroll = parseFloat(process.env.SLEEP_AFTER_SCROLL_DONE);
+  if (process.env.PERCY_SLEEP_AFTER_SCROLL_DONE) {
+    sleepAfterScroll = parseFloat(process.env.PERCY_SLEEP_AFTER_SCROLL_DONE);
   }
   await new Promise(resolve => setTimeout(resolve, sleepAfterScroll * 1000));
 };
