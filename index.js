@@ -12,6 +12,7 @@ const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 const utils = require('@percy/sdk-utils');
 const { DriverMetadata } = require('./driverMetadata');
 const log = utils.logger('selenium-webdriver');
+const CS_MAX_SCREENSHOT_LIMIT = 25000;
 
 const getWidthsForMultiDOM = (userPassedWidths, eligibleWidths) => {
   // Deep copy of eligible mobile widths
@@ -82,10 +83,10 @@ async function captureResponsiveDOM(driver, options) {
       await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) * 1000));
     }
 
-    if (process.env.PERCY_RESPONSIVE_CAPTURE_SCROLL_ENABLED) {
+    if (process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL) {
       let scrollSleep = 0.45;
-      if (process.env.PERCY_RESPONSIVE_CAPTURE_SCROLL_TIME) {
-        scrollSleep = parseFloat(process.env.PERCY_RESPONSIVE_CAPTURE_SCROLL_TIME);
+      if (process.env.PERCY_LAZY_LOAD_SCROLL_TIME) {
+        scrollSleep = parseFloat(process.env.PERCY_LAZY_LOAD_SCROLL_TIME);
       }
       await module.exports.slowScrollToBottom(driver, scrollSleep);
     }
@@ -272,7 +273,7 @@ module.exports.slowScrollToBottom = async (driver, timeInSeconds = 0.45) => {
 
   let page = 1;
   // Break the loop if maximum scroll height 25000px is reached
-  while (scrollHeight > current && current < 25000) {
+  while (scrollHeight > current && current < CS_MAX_SCREENSHOT_LIMIT) {
     current = clientHeight * page;
     page += 1;
     await driver.executeScript(`window.scrollTo(0, ${current})`);
@@ -284,8 +285,8 @@ module.exports.slowScrollToBottom = async (driver, timeInSeconds = 0.45) => {
   // Get back to top
   await driver.executeScript('window.scrollTo(0, 0)');
   let sleepAfterScroll = 1;
-  if (process.env.PERCY_SLEEP_AFTER_SCROLL_DONE) {
-    sleepAfterScroll = parseFloat(process.env.PERCY_SLEEP_AFTER_SCROLL_DONE);
+  if (process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE) {
+    sleepAfterScroll = parseFloat(process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE);
   }
   await new Promise(resolve => setTimeout(resolve, sleepAfterScroll * 1000));
 };
