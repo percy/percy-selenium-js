@@ -268,7 +268,7 @@ module.exports.isPercyEnabled = async function isPercyEnabled() {
 };
 
 module.exports.slowScrollToBottom = async (driver, timeInSeconds = SCROLL_DEFAULT_SLEEP_TIME) => {
-  let scrollHeight = Math.min(await driver.executeScript('return document.documentElement.scrollHeight'), 25000);
+  let scrollHeight = Math.min(await driver.executeScript('return document.documentElement.scrollHeight'), CS_MAX_SCREENSHOT_LIMIT);
   const clientHeight = await driver.executeScript('return document.documentElement.clientHeight');
   let current = 0;
 
