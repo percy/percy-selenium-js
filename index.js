@@ -13,6 +13,7 @@ const utils = require('@percy/sdk-utils');
 const { DriverMetadata } = require('./driverMetadata');
 const log = utils.logger('selenium-webdriver');
 const CS_MAX_SCREENSHOT_LIMIT = 25000;
+const SCROLL_DEFAULT_SLEEP_TIME = 0.45; // 450ms
 
 const getWidthsForMultiDOM = (userPassedWidths, eligibleWidths) => {
   // Deep copy of eligible mobile widths
@@ -69,7 +70,7 @@ async function captureResponsiveDOM(driver, options) {
   /* istanbul ignore next: no instrumenting injected code */
   await driver.executeScript('PercyDOM.waitForResize()');
   let height = currentHeight;
-  if (process.env.PERCY_RESPONSIVE_CAPTURE_USE_MIN_HEIGHT) {
+  if (process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT) {
     height = await driver.executeScript(`return window.outerHeight - window.innerHeight + ${utils.percy?.config?.snapshot?.minHeight}`);
   }
   for (let width of widths) {
@@ -84,7 +85,7 @@ async function captureResponsiveDOM(driver, options) {
     }
 
     if (process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL) {
-      let scrollSleep = 0.45;
+      let scrollSleep = SCROLL_DEFAULT_SLEEP_TIME;
       if (process.env.PERCY_LAZY_LOAD_SCROLL_TIME) {
         scrollSleep = parseFloat(process.env.PERCY_LAZY_LOAD_SCROLL_TIME);
       }
@@ -266,7 +267,7 @@ module.exports.isPercyEnabled = async function isPercyEnabled() {
   return await utils.isPercyEnabled();
 };
 
-module.exports.slowScrollToBottom = async (driver, timeInSeconds = 0.45) => {
+module.exports.slowScrollToBottom = async (driver, timeInSeconds = SCROLL_DEFAULT_SLEEP_TIME) => {
   let scrollHeight = Math.min(await driver.executeScript('return document.documentElement.scrollHeight'), 25000);
   const clientHeight = await driver.executeScript('return document.documentElement.clientHeight');
   let current = 0;
