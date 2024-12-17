@@ -80,16 +80,17 @@ async function captureResponsiveDOM(driver, options) {
       lastWindowWidth = width;
     }
 
+    if (process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE) {
+      await driver.navigate().refresh();
+      await driver.executeScript(await utils.fetchPercyDOM());
+    }
+
     if (process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) {
       await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) * 1000));
     }
 
     if (process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL) {
-      let scrollSleep = SCROLL_DEFAULT_SLEEP_TIME;
-      if (process.env.PERCY_LAZY_LOAD_SCROLL_TIME) {
-        scrollSleep = parseFloat(process.env.PERCY_LAZY_LOAD_SCROLL_TIME);
-      }
-      await module.exports.slowScrollToBottom(driver, scrollSleep);
+      await module.exports.slowScrollToBottom(driver);
     }
 
     let domSnapshot = await captureSerializedDOM(driver, options);
@@ -267,8 +268,13 @@ module.exports.isPercyEnabled = async function isPercyEnabled() {
   return await utils.isPercyEnabled();
 };
 
-module.exports.slowScrollToBottom = async (driver, timeInSeconds = SCROLL_DEFAULT_SLEEP_TIME) => {
-  let scrollHeight = Math.min(await driver.executeScript('return document.documentElement.scrollHeight'), CS_MAX_SCREENSHOT_LIMIT);
+module.exports.slowScrollToBottom = async (driver, scrollSleep = SCROLL_DEFAULT_SLEEP_TIME) => {
+  if (process.env.PERCY_LAZY_LOAD_SCROLL_TIME) {
+    scrollSleep = parseFloat(process.env.PERCY_LAZY_LOAD_SCROLL_TIME);
+  }
+
+  const scrollHeightCommand = 'return Math.max(document.body.scrollHeight, document.body.clientHeight, document.body.offsetHeight, document.documentElement.scrollHeight, document.documentElement.clientHeight, document.documentElement.offsetHeight);';
+  let scrollHeight = Math.min(await driver.executeScript(scrollHeightCommand), CS_MAX_SCREENSHOT_LIMIT);
   const clientHeight = await driver.executeScript('return document.documentElement.clientHeight');
   let current = 0;
 
@@ -278,10 +284,10 @@ module.exports.slowScrollToBottom = async (driver, timeInSeconds = SCROLL_DEFAUL
     current = clientHeight * page;
     page += 1;
     await driver.executeScript(`window.scrollTo(0, ${current})`);
-    await new Promise(resolve => setTimeout(resolve, timeInSeconds * 1000));
+    await new Promise(resolve => setTimeout(resolve, scrollSleep * 1000));
 
     // Recalculate scroll height for dynamically loaded pages
-    scrollHeight = await driver.executeScript('return document.documentElement.scrollHeight');
+    scrollHeight = await driver.executeScript(scrollHeightCommand);
   }
   // Get back to top
   await driver.executeScript('window.scrollTo(0, 0)');
