@@ -33,7 +33,7 @@ const getWidthsForMultiDOM = (userPassedWidths, eligibleWidths) => {
 async function changeWindowDimensionAndWait(driver, width, height, resizeCount) {
   try {
     const caps = await driver.getCapabilities();
-    if (typeof driver?.sendDevToolsCommand === 'function' && caps.getBrowserName() === 'chrome') {
+    if (typeof driver?.sendDevToolsCommand === 'function' && caps.getBrowserName() === 'chrome' && process.env.PERCY_DISABLE_CDP_RESIZE !== 'true') {
       await driver?.sendDevToolsCommand('Emulation.setDeviceMetricsOverride', {
         height,
         width,
