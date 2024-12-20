@@ -12,6 +12,8 @@ const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 const utils = require('@percy/sdk-utils');
 const { DriverMetadata } = require('./driverMetadata');
 const log = utils.logger('selenium-webdriver');
+const CS_MAX_SCREENSHOT_LIMIT = 25000;
+const SCROLL_DEFAULT_SLEEP_TIME = 0.45; // 450ms
 
 const getWidthsForMultiDOM = (userPassedWidths, eligibleWidths) => {
   // Deep copy of eligible mobile widths
@@ -31,7 +33,7 @@ const getWidthsForMultiDOM = (userPassedWidths, eligibleWidths) => {
 async function changeWindowDimensionAndWait(driver, width, height, resizeCount) {
   try {
     const caps = await driver.getCapabilities();
-    if (typeof driver?.sendDevToolsCommand === 'function' && caps.getBrowserName() === 'chrome') {
+    if (typeof driver?.sendDevToolsCommand === 'function' && caps.getBrowserName() === 'chrome' && process.env.PERCY_DISABLE_CDP_RESIZE !== 'true') {
       await driver?.sendDevToolsCommand('Emulation.setDeviceMetricsOverride', {
         height,
         width,
@@ -67,15 +69,28 @@ async function captureResponsiveDOM(driver, options) {
   // Setup the resizeCount listener if not present
   /* istanbul ignore next: no instrumenting injected code */
   await driver.executeScript('PercyDOM.waitForResize()');
+  let height = currentHeight;
+  if (process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT) {
+    height = await driver.executeScript(`return window.outerHeight - window.innerHeight + ${utils.percy?.config?.snapshot?.minHeight}`);
+  }
   for (let width of widths) {
     if (lastWindowWidth !== width) {
       resizeCount++;
-      await changeWindowDimensionAndWait(driver, width, currentHeight, resizeCount);
+      await changeWindowDimensionAndWait(driver, width, height, resizeCount);
       lastWindowWidth = width;
+    }
+
+    if (process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE) {
+      await driver.navigate().refresh();
+      await driver.executeScript(await utils.fetchPercyDOM());
     }
 
     if (process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) {
       await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) * 1000));
+    }
+
+    if (process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL) {
+      await module.exports.slowScrollToBottom(driver);
     }
 
     let domSnapshot = await captureSerializedDOM(driver, options);
@@ -251,4 +266,34 @@ module.exports.percyScreenshot = async function percyScreenshot(driver, name, op
 // also need to define this at the end of the file or else default exports will over-ride this
 module.exports.isPercyEnabled = async function isPercyEnabled() {
   return await utils.isPercyEnabled();
+};
+
+module.exports.slowScrollToBottom = async (driver, scrollSleep = SCROLL_DEFAULT_SLEEP_TIME) => {
+  if (process.env.PERCY_LAZY_LOAD_SCROLL_TIME) {
+    scrollSleep = parseFloat(process.env.PERCY_LAZY_LOAD_SCROLL_TIME);
+  }
+
+  const scrollHeightCommand = 'return Math.max(document.body.scrollHeight, document.body.clientHeight, document.body.offsetHeight, document.documentElement.scrollHeight, document.documentElement.clientHeight, document.documentElement.offsetHeight);';
+  let scrollHeight = Math.min(await driver.executeScript(scrollHeightCommand), CS_MAX_SCREENSHOT_LIMIT);
+  const clientHeight = await driver.executeScript('return document.documentElement.clientHeight');
+  let current = 0;
+
+  let page = 1;
+  // Break the loop if maximum scroll height 25000px is reached
+  while (scrollHeight > current && current < CS_MAX_SCREENSHOT_LIMIT) {
+    current = clientHeight * page;
+    page += 1;
+    await driver.executeScript(`window.scrollTo(0, ${current})`);
+    await new Promise(resolve => setTimeout(resolve, scrollSleep * 1000));
+
+    // Recalculate scroll height for dynamically loaded pages
+    scrollHeight = await driver.executeScript(scrollHeightCommand);
+  }
+  // Get back to top
+  await driver.executeScript('window.scrollTo(0, 0)');
+  let sleepAfterScroll = 1;
+  if (process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE) {
+    sleepAfterScroll = parseFloat(process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE);
+  }
+  await new Promise(resolve => setTimeout(resolve, sleepAfterScroll * 1000));
 };

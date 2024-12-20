@@ -3,7 +3,7 @@ import helpers from '@percy/sdk-utils/test/helpers';
 import percySnapshot from '../index.js';
 import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
-const { percyScreenshot } = percySnapshot;
+const { percyScreenshot, slowScrollToBottom } = percySnapshot;
 
 describe('percySnapshot', () => {
   let driver;
@@ -14,8 +14,9 @@ describe('percySnapshot', () => {
       .forBrowser('firefox').build();
 
     mockedDriver = {
-      getCapabilities: jasmine.createSpy('sendDevToolsCommand').and.returnValue({ getBrowserName: () => 'chrome'}),
+      getCapabilities: jasmine.createSpy('sendDevToolsCommand').and.returnValue({ getBrowserName: () => 'chrome' }),
       sendDevToolsCommand: jasmine.createSpy('sendDevToolsCommand').and.returnValue(Promise.resolve()),
+      navigate: jasmine.createSpy('navigate').and.returnValue({ refresh: jasmine.createSpy('refresh') }),
       manage: jasmine.createSpy('manage').and.returnValue({
         window: jasmine.createSpy('window').and.returnValue({
           setRect: jasmine.createSpy('setRect').and.returnValue(Promise.resolve()),
@@ -187,6 +188,13 @@ describe('percySnapshot', () => {
     expect(mockedDriver.executeScript).not.toHaveBeenCalledWith('return window.resizeCount');
   });
 
+  it('should reload page if PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE is set', async () => {
+    process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE = true;
+    await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
+    expect(mockedDriver.navigate().refresh).toHaveBeenCalled();
+    delete process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE;
+  });
+
   it('should wait if RESPONSIVE_CAPTURE_SLEEP_TIME is set', async () => {
     process.env.RESPONSIVE_CAPTURE_SLEEP_TIME = 1;
     spyOn(global, 'setTimeout').and.callThrough();
@@ -195,6 +203,31 @@ describe('percySnapshot', () => {
 
     expect(setTimeout).toHaveBeenCalled();
     delete process.env.RESPONSIVE_CAPTURE_SLEEP_TIME;
+  });
+
+  it('should scroll if PERCY_ENABLE_LAZY_LOADING_SCROLL is set', async () => {
+    process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL = true;
+    const mockedScroll = spyOn(percySnapshot, 'slowScrollToBottom').and.resolveTo(true);
+    await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
+
+    expect(mockedScroll).toHaveBeenCalledWith(mockedDriver);
+    delete process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL;
+  });
+
+  it('should use minHeight if PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT is set', async () => {
+    process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL = true;
+    process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT = true;
+    utils.percy.config = { snapshot: { minHeight: 10 } };
+
+    const mockedScroll = spyOn(percySnapshot, 'slowScrollToBottom').and.resolveTo(true);
+
+    mockedDriver.executeScript.calls.reset();
+    await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
+
+    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(4);
+    expect(mockedScroll).toHaveBeenCalledWith(mockedDriver);
+    delete process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL;
+    delete process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT;
   });
 
   it('throw error in SDK if PERCY_RAISE_ERROR is true', async () => {
@@ -226,6 +259,48 @@ describe('percySnapshot', () => {
       '[percy] Could not take DOM snapshot "Snapshot 1"'
     ]));
     expect(error).toBeInstanceOf(Error);
+  });
+});
+
+describe('#slowScrollToBottom', () => {
+  let mockedDriver = { executeScript: jasmine.createSpy('executeScript') };
+  beforeEach(() => {
+    mockedDriver.executeScript.calls.reset();
+  });
+
+  it('should scroll to bottom and sleep after loading as set in env', async () => {
+    process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE = 2;
+    mockedDriver.executeScript.and.returnValues(9, 5, true, 9, true, 9, true);
+    spyOn(global, 'setTimeout').and.callThrough();
+
+    await slowScrollToBottom(mockedDriver);
+    expect(setTimeout.calls.allArgs()).toEqual([[jasmine.any(Function), 450], [jasmine.any(Function), 450], [jasmine.any(Function), 2000]]);
+    expect(mockedDriver.executeScript).toHaveBeenCalledWith('window.scrollTo(0, 0)');
+    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(7);
+    delete process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE;
+  });
+
+  it('should scroll to bottom and sleep as set in env', async () => {
+    process.env.PERCY_LAZY_LOAD_SCROLL_TIME = '1.2';
+    mockedDriver.executeScript.and.returnValues(9, 5, true, 9, true, 9, true);
+    spyOn(global, 'setTimeout').and.callThrough();
+
+    await slowScrollToBottom(mockedDriver);
+    expect(setTimeout.calls.allArgs()).toEqual([[jasmine.any(Function), 1200], [jasmine.any(Function), 1200], [jasmine.any(Function), 1000]]);
+    expect(mockedDriver.executeScript).toHaveBeenCalledWith('window.scrollTo(0, 0)');
+    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(7);
+    delete process.env.PERCY_LAZY_LOAD_SCROLL_TIME;
+  });
+
+  it('should scroll upto 25k px and sleep as passed in function', async () => {
+    mockedDriver.executeScript = jasmine.createSpy('executeScript');
+    mockedDriver.executeScript.and.returnValues(30000, 15000, true, 30000, true, 30000, true);
+    spyOn(global, 'setTimeout').and.callThrough();
+
+    await slowScrollToBottom(mockedDriver, 2);
+    expect(setTimeout.calls.allArgs()).toEqual([[jasmine.any(Function), 2000], [jasmine.any(Function), 2000], [jasmine.any(Function), 1000]]);
+    expect(mockedDriver.executeScript).toHaveBeenCalledWith('window.scrollTo(0, 0)');
+    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(7);
   });
 });
 
