@@ -30,11 +30,11 @@
     "test:types": "tsd"
   },
   "dependencies": {
-    "@percy/sdk-utils": "^1.30.3",
+    "@percy/sdk-utils": "^1.30.9",
     "node-request-interceptor": "^0.6.3"
   },
   "devDependencies": {
-    "@percy/cli": "^1.30.3",
+    "@percy/cli": "1.30.9",
     "@types/selenium-webdriver": "^4.0.9",
     "cross-env": "^7.0.2",
     "eslint": "^8.27.0",
