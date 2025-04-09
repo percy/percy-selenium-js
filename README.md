@@ -171,7 +171,7 @@ const driver = new webdriver.Builder().usingServer('https://hub-cloud.browsersta
         - `right` (int): Right coordinate of the consider region.
     - `regions` parameter that allows users to apply snapshot options to specific areas of the page. This parameter is an array where each object defines a custom region with configurations.
       - Parameters:
-        - `elementSelector` (mandatory, only one of the following must be provided)
+       - `elementSelector` (optional, only one of the following must be provided, if this is not provided then full page will be considered as region)
             - `boundingBox` (object): Defines the coordinates and size of the region.
               - `x` (number): X-coordinate of the region.
               - `y` (number): Y-coordinate of the region.
