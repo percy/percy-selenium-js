@@ -3,7 +3,7 @@ import helpers from '@percy/sdk-utils/test/helpers';
 import percySnapshot from '../index.js';
 import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
-const { percyScreenshot, slowScrollToBottom } = percySnapshot;
+const { percyScreenshot, slowScrollToBottom, createRegion } = percySnapshot;
 
 describe('percySnapshot', () => {
   let driver;
@@ -474,5 +474,75 @@ describe('percyScreenshot', () => {
       error = e.message;
     }
     expect(error).toEqual('Invalid function call - percyScreenshot(). Please use percySnapshot() function for taking screenshot. percyScreenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://www.browserstack.com/docs/percy/integrate/overview');
+  });
+});
+
+describe('createRegion', () => {
+  it('creates a region with default values', async () => {
+    const region = createRegion();
+    expect(region).toEqual({
+      algorithm: 'ignore',
+      elementSelector: {}
+    });
+  });
+
+  it('sets boundingBox in elementSelector', async () => {
+    const region = createRegion({ boundingBox: { x: 10, y: 20, width: 100, height: 50 } });
+    expect(region.elementSelector.boundingBox).toEqual({ x: 10, y: 20, width: 100, height: 50 });
+  });
+
+  it('sets elementXpath in elementSelector', async () => {
+    const region = createRegion({ elementXpath: '//div[@id=\'test\']' });
+    expect(region.elementSelector.elementXpath).toBe("//div[@id='test']");
+  });
+
+  it('sets elementCSS in elementSelector', async () => {
+    const region = createRegion({ elementCSS: '.test-class' });
+    expect(region.elementSelector.elementCSS).toBe('.test-class');
+  });
+
+  it('includes padding if provided', async () => {
+    const region = createRegion({ padding: 10 });
+    expect(region.padding).toBe(10);
+  });
+
+  it('includes configuration when algorithm is standard', async () => {
+    const region = createRegion({ algorithm: 'standard', diffSensitivity: 5 });
+    expect(region.configuration.diffSensitivity).toBe(5);
+  });
+
+  it('includes configuration when algorithm is intelliignore', async () => {
+    const region = createRegion({ algorithm: 'intelliignore', imageIgnoreThreshold: 0.2 });
+    expect(region.configuration.imageIgnoreThreshold).toBe(0.2);
+  });
+
+  it('does not include configuration for ignore algorithm', async () => {
+    const region = createRegion({ algorithm: 'ignore', diffSensitivity: 5 });
+    expect(region.configuration).toBeUndefined();
+  });
+
+  it('includes assertion when diffIgnoreThreshold is provided', async () => {
+    const region = createRegion({ diffIgnoreThreshold: 0.1 });
+    expect(region.assertion.diffIgnoreThreshold).toBe(0.1);
+  });
+
+  it('does not include assertion when diffIgnoreThreshold is not provided', async () => {
+    const region = createRegion();
+    expect(region.assertion).toBeUndefined();
+  });
+
+  it('includes carouselsEnabled in configuration if provided', async () => {
+    const region = createRegion({ algorithm: 'standard', carouselsEnabled: true });
+    expect(region.configuration.carouselsEnabled).toBe(true);
+  });
+
+  it('includes bannersEnabled in configuration if provided', async () => {
+    const region = createRegion({ algorithm: 'standard', bannersEnabled: true });
+    expect(region.configuration.bannersEnabled).toBe(true);
+  });
+
+  it('includes adsEnabled in configuration if provided', async () => {
+    const region = createRegion({ algorithm: 'standard', adsEnabled: true });
+    expect(region.configuration.adsEnabled).toBe(true);
   });
 });
