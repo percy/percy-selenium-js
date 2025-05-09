@@ -30,7 +30,7 @@
     "test:types": "tsd"
   },
   "dependencies": {
-    "@percy/sdk-utils": "^1.30.9",
+    "@percy/sdk-utils": "^1.30.10",
     "node-request-interceptor": "^0.6.3"
   },
   "devDependencies": {
