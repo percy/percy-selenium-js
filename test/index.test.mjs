@@ -3,7 +3,7 @@ import helpers from '@percy/sdk-utils/test/helpers';
 import percySnapshot from '../index.js';
 import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
-const { percyScreenshot, slowScrollToBottom, createRegion } = percySnapshot;
+const { percyScreenshot, slowScrollToBottom, createRegion, ignoreCanvasSerializationErrors } = percySnapshot;
 
 describe('percySnapshot', () => {
   let driver;
@@ -582,7 +582,6 @@ describe('createRegion', () => {
 });
 
 describe('ignoreCanvasSerializationErrors', () => {
-  const { ignoreCanvasSerializationErrors } = percySnapshot;
 
   beforeEach(() => {
     // Reset utils.percy config before each test
