@@ -260,6 +260,40 @@ describe('percySnapshot', () => {
     ]));
     expect(error).toBeInstanceOf(Error);
   });
+
+  it('passes ignoreCanvasSerializationErrors as true to DOM serialization', async () => {
+    spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+      domSnapshot: { html: '<html></html>', resources: [] }
+    }));
+
+    await percySnapshot(driver, 'Snapshot with ignore canvas true', { 
+      ignoreCanvasSerializationErrors: true 
+    });
+
+    expect(driver.executeScript).toHaveBeenCalledWith(
+      jasmine.any(Function),
+      jasmine.objectContaining({
+        ignoreCanvasSerializationErrors: true
+      })
+    );
+  });
+
+  it('passes ignoreCanvasSerializationErrors as false to DOM serialization', async () => {
+    spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+      domSnapshot: { html: '<html></html>', resources: [] }
+    }));
+
+    await percySnapshot(driver, 'Snapshot with ignore canvas false', { 
+      ignoreCanvasSerializationErrors: false 
+    });
+
+    expect(driver.executeScript).toHaveBeenCalledWith(
+      jasmine.any(Function),
+      jasmine.objectContaining({
+        ignoreCanvasSerializationErrors: false
+      })
+    );
+  });
 });
 
 describe('#slowScrollToBottom', () => {
@@ -544,5 +578,50 @@ describe('createRegion', () => {
   it('includes adsEnabled in configuration if provided', async () => {
     const region = createRegion({ algorithm: 'standard', adsEnabled: true });
     expect(region.configuration.adsEnabled).toBe(true);
+  });
+});
+
+describe('ignoreCanvasSerializationErrors', () => {
+  const { ignoreCanvasSerializationErrors } = percySnapshot;
+
+  beforeEach(() => {
+    // Reset utils.percy config before each test
+    if (utils.percy?.config?.snapshot) {
+      delete utils.percy.config.snapshot.ignoreCanvasSerializationErrors;
+    }
+  });
+
+  it('should return false when no options are provided', () => {
+    const result = ignoreCanvasSerializationErrors();
+    expect(result).toBe(false);
+
+    const result2 = ignoreCanvasSerializationErrors({});
+    expect(result2).toBe(false);
+  });
+
+  it('should return value from options.ignoreCanvasSerializationErrors when provided', () => {
+    const result = ignoreCanvasSerializationErrors({ ignoreCanvasSerializationErrors: true });
+    expect(result).toBe(true);
+
+    const result2 = ignoreCanvasSerializationErrors({ ignoreCanvasSerializationErrors: false });
+    expect(result2).toBe(false);
+  });
+
+  it('should fall back to utils.percy.config.snapshot.ignoreCanvasSerializationErrors when options value is undefined', () => {
+    utils.percy.config = { snapshot: { ignoreCanvasSerializationErrors: true } };
+    const result = ignoreCanvasSerializationErrors({});
+    expect(result).toBe(true);
+  });
+
+  it('should prefer options value over config value', () => {
+    utils.percy.config = { snapshot: { ignoreCanvasSerializationErrors: true } };
+    const result = ignoreCanvasSerializationErrors({ ignoreCanvasSerializationErrors: false });
+    expect(result).toBe(false);
+  });
+
+  it('should return false when both options and config are undefined', () => {
+    utils.percy.config = { snapshot: {} };
+    const result = ignoreCanvasSerializationErrors({});
+    expect(result).toBe(false);
   });
 });
