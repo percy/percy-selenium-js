@@ -1,9 +1,9 @@
 import webdriver from 'selenium-webdriver';
 import helpers from '@percy/sdk-utils/test/helpers';
-import percySnapshot from '../index.js';
+import percySnapshot, { ignoreCanvasSerializationErrors} from '../index.js';
 import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
-const { percyScreenshot, slowScrollToBottom, createRegion, ignoreCanvasSerializationErrors } = percySnapshot;
+const { percyScreenshot, slowScrollToBottom, createRegion } = percySnapshot;
 
 describe('percySnapshot', () => {
   let driver;
