@@ -103,12 +103,26 @@ async function captureResponsiveDOM(driver, options) {
   return domSnapshots;
 }
 
+function ignoreCanvasSerializationErrors(options) {
+  return options?.ignoreCanvasSerializationErrors ?? 
+         utils.percy?.config?.snapshot?.ignoreCanvasSerializationErrors ?? 
+         false;
+}
+
 async function captureSerializedDOM(driver, options) {
+  console.log('Options Passed to DOM serialization:', {
+    ...options,
+    ignoreCanvasSerializationErrors: ignoreCanvasSerializationErrors(options)
+  });
   /* istanbul ignore next: no instrumenting injected code */
   let { domSnapshot } = await driver.executeScript(options => ({
     /* eslint-disable-next-line no-undef */
     domSnapshot: PercyDOM.serialize(options)
-  }), options);
+  }), {
+    ...options,
+    ignoreCanvasSerializationErrors: ignoreCanvasSerializationErrors(options)
+  });
+  
   /* istanbul ignore next: no instrumenting injected code */
   domSnapshot.cookies = await driver.manage().getCookies() || [];
   return domSnapshot;
