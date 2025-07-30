@@ -621,7 +621,12 @@ describe('ignoreCanvasSerializationErrors', () => {
   });
 
   it('should return false when both options and config are undefined', () => {
-    utils.percy.config = { snapshot: {} };
+    utils.percy.config = {
+      ...utils.percy.config,
+      snapshot: {
+        ...utils.percy.config?.snapshot,
+      }
+    };
     const result = ignoreCanvasSerializationErrors({});
     expect(result).toBe(false);
   });
