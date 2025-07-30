@@ -585,7 +585,7 @@ describe('ignoreCanvasSerializationErrors', () => {
 
   beforeEach(() => {
     // Reset utils.percy config before each test
-    if (utils.percy?.config?.snapshot) {
+    if (utils.percy && utils.percy.config && utils.percy.config.snapshot) {
       delete utils.percy.config.snapshot.ignoreCanvasSerializationErrors;
     }
   });
