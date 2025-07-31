@@ -251,7 +251,6 @@ const percySnapshot = async function percySnapshot(driver, name, options) {
 module.exports = percySnapshot;
 module.exports.percySnapshot = percySnapshot;
 module.exports.createRegion = createRegion;
-module.exports.ignoreCanvasSerializationErrors = ignoreCanvasSerializationErrors;
 
 module.exports.request = async function request(data) {
   return await utils.captureAutomateScreenshot(data);
