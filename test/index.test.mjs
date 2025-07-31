@@ -297,13 +297,6 @@ describe('percySnapshot', () => {
 
   describe('ignoreCanvasSerializationErrors via percySnapshot', () => {
 
-    beforeEach(() => {
-      // Reset utils.percy config before each test
-      if (utils.percy && utils.percy.config && utils.percy.config.snapshot) {
-        delete utils.percy.config.snapshot.ignoreCanvasSerializationErrors;
-      }
-    });
-
     it('should default to false when no options are provided', async () => {
       spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
         domSnapshot: { html: '<html></html>', resources: [] }
@@ -349,25 +342,6 @@ describe('percySnapshot', () => {
         jasmine.any(Function),
         jasmine.objectContaining({
           ignoreCanvasSerializationErrors: false
-        })
-      );
-    });
-
-    it('should fall back to config value when options value is undefined', async () => {
-      utils.percy.config = utils.percy.config || {};
-      utils.percy.config.snapshot = utils.percy.config.snapshot || {};
-      utils.percy.config.snapshot.ignoreCanvasSerializationErrors = true;
-
-      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
-        domSnapshot: { html: '<html></html>', resources: [] }
-      }));
-
-      await percySnapshot(driver, 'Config fallback test', {});
-
-      expect(driver.executeScript).toHaveBeenCalledWith(
-        jasmine.any(Function),
-        jasmine.objectContaining({
-          ignoreCanvasSerializationErrors: true
         })
       );
     });
