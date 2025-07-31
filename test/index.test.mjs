@@ -1,6 +1,6 @@
 import webdriver from 'selenium-webdriver';
 import helpers from '@percy/sdk-utils/test/helpers';
-import percySnapshot, { ignoreCanvasSerializationErrors} from '../index.js';
+import percySnapshot, { ignoreCanvasSerializationErrors } from '../index.js';
 import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
 const { percyScreenshot, slowScrollToBottom, createRegion } = percySnapshot;
@@ -585,7 +585,7 @@ describe('ignoreCanvasSerializationErrors', () => {
 
   beforeEach(() => {
     // Reset utils.percy config before each test
-    if (utils.percy?.config?.snapshot) {
+    if (utils.percy && utils.percy.config && utils.percy.config.snapshot) {
       delete utils.percy.config.snapshot.ignoreCanvasSerializationErrors;
     }
   });
@@ -607,7 +607,9 @@ describe('ignoreCanvasSerializationErrors', () => {
   });
 
   it('should fall back to utils.percy.config.snapshot.ignoreCanvasSerializationErrors when options value is undefined', () => {
-    utils.percy.config = { snapshot: { ignoreCanvasSerializationErrors: true } };
+    utils.percy.config = utils.percy.config || {};
+    utils.percy.config.snapshot = utils.percy.config.snapshot || {};
+    utils.percy.config.snapshot.ignoreCanvasSerializationErrors = true;
     const result = ignoreCanvasSerializationErrors({});
     expect(result).toBe(true);
   });
@@ -619,7 +621,12 @@ describe('ignoreCanvasSerializationErrors', () => {
   });
 
   it('should return false when both options and config are undefined', () => {
-    utils.percy.config = { snapshot: {} };
+    utils.percy.config = {
+      ...utils.percy.config,
+      snapshot: {
+        ...utils.percy.config?.snapshot,
+      }
+    };
     const result = ignoreCanvasSerializationErrors({});
     expect(result).toBe(false);
   });
