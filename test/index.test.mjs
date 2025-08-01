@@ -260,6 +260,133 @@ describe('percySnapshot', () => {
     ]));
     expect(error).toBeInstanceOf(Error);
   });
+
+  it('passes ignoreCanvasSerializationErrors as true to DOM serialization', async () => {
+    spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+      domSnapshot: { html: '<html></html>', resources: [] }
+    }));
+
+    await percySnapshot(driver, 'Snapshot with ignore canvas true', { 
+      ignoreCanvasSerializationErrors: true 
+    });
+
+    expect(driver.executeScript).toHaveBeenCalledWith(
+      jasmine.any(Function),
+      jasmine.objectContaining({
+        ignoreCanvasSerializationErrors: true
+      })
+    );
+  });
+
+  it('passes ignoreCanvasSerializationErrors as false to DOM serialization', async () => {
+    spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+      domSnapshot: { html: '<html></html>', resources: [] }
+    }));
+
+    await percySnapshot(driver, 'Snapshot with ignore canvas false', { 
+      ignoreCanvasSerializationErrors: false 
+    });
+
+    expect(driver.executeScript).toHaveBeenCalledWith(
+      jasmine.any(Function),
+      jasmine.objectContaining({
+        ignoreCanvasSerializationErrors: false
+      })
+    );
+  });
+
+  describe('ignoreCanvasSerializationErrors via percySnapshot', () => {
+
+    it('should default to false when no options are provided', async () => {
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Default canvas test');
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreCanvasSerializationErrors: false
+        })
+      );
+    });
+
+    it('should use value from options when provided as true', async () => {
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Options true test', { 
+        ignoreCanvasSerializationErrors: true 
+      });
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreCanvasSerializationErrors: true
+        })
+      );
+    });
+
+    it('should use value from options when provided as false', async () => {
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Options false test', { 
+        ignoreCanvasSerializationErrors: false 
+      });
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreCanvasSerializationErrors: false
+        })
+      );
+    });
+
+    it('should prefer options value over config value', async () => {
+      utils.percy.config = { snapshot: { ignoreCanvasSerializationErrors: true } };
+
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Options override test', { 
+        ignoreCanvasSerializationErrors: false 
+      });
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreCanvasSerializationErrors: false
+        })
+      );
+    });
+
+    it('should return false when both options and config are undefined', async () => {
+      utils.percy.config = {
+        ...utils.percy.config,
+        snapshot: {
+          ...utils.percy.config?.snapshot,
+        }
+      };
+
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Both undefined test', {});
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreCanvasSerializationErrors: false
+        })
+      );
+    });
+  });
 });
 
 describe('#slowScrollToBottom', () => {
@@ -546,3 +673,5 @@ describe('createRegion', () => {
     expect(region.configuration.adsEnabled).toBe(true);
   });
 });
+
+
