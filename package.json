@@ -36,7 +36,7 @@
   "devDependencies": {
     "@percy/cli": "1.30.9",
     "@types/selenium-webdriver": "^4.0.9",
-    "cross-env": "^7.0.2",
+    "cross-env": "^10.0.0",
     "eslint": "^8.27.0",
     "eslint-config-standard": "^17.0.0",
     "eslint-plugin-import": "^2.22.1",
