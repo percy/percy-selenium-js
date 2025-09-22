@@ -353,7 +353,9 @@ module.exports.slowScrollToBottom = async (driver, scrollSleep = SCROLL_DEFAULT_
     scrollHeight = await driver.executeScript(scrollHeightCommand);
   }
   // Get back to top
-  await driver.executeScript('window.scrollTo(0, 0)');
+  if (!(process.env.BYPASS_SCROLL_TO_TOP === 'true')) {
+    await driver.executeScript('window.scrollTo(0, 0)');
+  }
   let sleepAfterScroll = 1;
   if (process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE) {
     sleepAfterScroll = parseFloat(process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE);

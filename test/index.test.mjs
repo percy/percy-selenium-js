@@ -395,6 +395,19 @@ describe('#slowScrollToBottom', () => {
     mockedDriver.executeScript.calls.reset();
   });
 
+  it('should scroll to bottom and does not scroll back', async () => {
+    process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE = 2;
+    process.env.BYPASS_SCROLL_TO_TOP = 'true';
+    mockedDriver.executeScript.and.returnValues(9, 5, true, 9, true, 9);
+    spyOn(global, 'setTimeout').and.callThrough();
+
+    await slowScrollToBottom(mockedDriver);
+    expect(setTimeout.calls.allArgs()).toEqual([[jasmine.any(Function), 450], [jasmine.any(Function), 450], [jasmine.any(Function), 2000]]);
+    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(6);
+    delete process.env.BYPASS_SCROLL_TO_TOP;
+    delete process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE;
+  });
+
   it('should scroll to bottom and sleep after loading as set in env', async () => {
     process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE = 2;
     mockedDriver.executeScript.and.returnValues(9, 5, true, 9, true, 9, true);
