@@ -109,6 +109,12 @@ function ignoreCanvasSerializationErrors(options) {
          false;
 }
 
+function ignoreStyleSheetSerializationErrors(options) {
+  return options?.ignoreStyleSheetSerializationErrors ??
+         utils.percy?.config?.snapshot?.ignoreStyleSheetSerializationErrors ??
+         false;
+}
+
 async function captureSerializedDOM(driver, options) {
   /* istanbul ignore next: no instrumenting injected code */
   let { domSnapshot } = await driver.executeScript(options => ({
@@ -116,7 +122,8 @@ async function captureSerializedDOM(driver, options) {
     domSnapshot: PercyDOM.serialize(options)
   }), {
     ...options,
-    ignoreCanvasSerializationErrors: ignoreCanvasSerializationErrors(options)
+    ignoreCanvasSerializationErrors: ignoreCanvasSerializationErrors(options),
+    ignoreStyleSheetSerializationErrors: ignoreStyleSheetSerializationErrors(options)
   });
 
   /* istanbul ignore next: no instrumenting injected code */

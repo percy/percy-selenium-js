@@ -387,6 +387,99 @@ describe('percySnapshot', () => {
       );
     });
   });
+
+  describe('ignoreStyleSheetSerializationErrors via percySnapshot', () => {
+
+    it('should default to false when no options are provided', async () => {
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Default canvas test');
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreStyleSheetSerializationErrors: false
+        })
+      );
+    });
+
+    it('should use value from options when provided as true', async () => {
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Options true test', { 
+        ignoreStyleSheetSerializationErrors: true 
+      });
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreStyleSheetSerializationErrors: true
+        })
+      );
+    });
+
+    it('should use value from options when provided as false', async () => {
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Options false test', { 
+        ignoreStyleSheetSerializationErrors: false 
+      });
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreStyleSheetSerializationErrors: false
+        })
+      );
+    });
+
+    it('should prefer options value over config value', async () => {
+      utils.percy.config = { snapshot: { ignoreStyleSheetSerializationErrors: true } };
+
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Options override test', { 
+        ignoreStyleSheetSerializationErrors: false 
+      });
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreStyleSheetSerializationErrors: false
+        })
+      );
+    });
+
+    it('should return false when both options and config are undefined', async () => {
+      utils.percy.config = {
+        ...utils.percy.config,
+        snapshot: {
+          ...utils.percy.config?.snapshot,
+        }
+      };
+
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Both undefined test', {});
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreStyleSheetSerializationErrors: false
+        })
+      );
+    });
+  });
 });
 
 describe('#slowScrollToBottom', () => {
