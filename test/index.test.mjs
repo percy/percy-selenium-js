@@ -480,6 +480,142 @@ describe('percySnapshot', () => {
       );
     });
   });
+
+  describe('async DOM serialization', () => {
+    it('should handle async PercyDOM.serialize correctly', async () => {
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html><body>Test</body></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Async serialize test');
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreCanvasSerializationErrors: false,
+          ignoreStyleSheetSerializationErrors: false
+        })
+      );
+    });
+
+    it('should properly await DOM serialization with options', async () => {
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { 
+          html: '<html><body>Test with options</body></html>', 
+          resources: [{ url: 'test.css', content: 'body{}' }] 
+        }
+      }));
+
+      await percySnapshot(driver, 'Async serialize with options', {
+        ignoreCanvasSerializationErrors: true,
+        ignoreStyleSheetSerializationErrors: true
+      });
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          ignoreCanvasSerializationErrors: true,
+          ignoreStyleSheetSerializationErrors: true
+        })
+      );
+    });
+
+    it('should handle async serialization errors gracefully', async () => {
+      spyOn(driver, 'executeScript').and.rejectWith(new Error('Async serialization failed'));
+
+      await percySnapshot(driver, 'Async serialize error test');
+
+      expect(helpers.logger.stderr).toEqual(jasmine.arrayContaining([
+        '[percy] Could not take DOM snapshot "Async serialize error test"'
+      ]));
+    });
+
+    it('should await serialization in responsive snapshot capture', async () => {
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      utils.percy.widths = { mobile: [], config: [1280] };
+
+      await percySnapshot(mockedDriver, 'Async responsive test', { 
+        responsiveSnapshotCapture: true,
+        widths: [1280]
+      });
+
+      // Should be called for waitForResize and serialize
+      expect(mockedDriver.executeScript).toHaveBeenCalled();
+    });
+
+    it('should handle async serialization with cookies', async () => {
+      const mockCookies = [
+        { name: 'test-cookie', value: 'test-value', domain: 'example.com' }
+      ];
+
+      const mockManage = {
+        getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve(mockCookies))
+      };
+
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      spyOn(driver, 'manage').and.returnValue(mockManage);
+
+      await percySnapshot(driver, 'Async serialize with cookies');
+
+      expect(mockManage.getCookies).toHaveBeenCalled();
+    });
+
+    it('should pass all options through async serialization', async () => {
+      const customOptions = {
+        enableJavaScript: true,
+        widths: [375, 1280],
+        minHeight: 1024,
+        ignoreCanvasSerializationErrors: true,
+        ignoreStyleSheetSerializationErrors: true,
+        customParam: 'test-value'
+      };
+
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'Async with custom options', customOptions);
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.objectContaining({
+          enableJavaScript: true,
+          widths: [375, 1280],
+          minHeight: 1024,
+          ignoreCanvasSerializationErrors: true,
+          ignoreStyleSheetSerializationErrors: true,
+          customParam: 'test-value'
+        })
+      );
+    });
+
+    it('should handle async serialization returning complex resources', async () => {
+      const complexSnapshot = {
+        domSnapshot: {
+          html: '<html><head><link rel="stylesheet" href="style.css"></head><body><canvas></canvas></body></html>',
+          resources: [
+            { url: 'style.css', content: 'body { margin: 0; }', mimetype: 'text/css' },
+            { url: 'image.png', content: 'base64data', mimetype: 'image/png' }
+          ]
+        }
+      };
+
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve(complexSnapshot));
+
+      await percySnapshot(driver, 'Async with complex resources');
+
+      expect(driver.executeScript).toHaveBeenCalledWith(
+        jasmine.any(Function),
+        jasmine.any(Object)
+      );
+    });
+  });
 });
 
 describe('#slowScrollToBottom', () => {

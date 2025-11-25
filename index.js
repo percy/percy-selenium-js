@@ -117,9 +117,9 @@ function ignoreStyleSheetSerializationErrors(options) {
 
 async function captureSerializedDOM(driver, options) {
   /* istanbul ignore next: no instrumenting injected code */
-  let { domSnapshot } = await driver.executeScript(options => ({
+  let { domSnapshot } = await driver.executeScript(async (options) => ({
     /* eslint-disable-next-line no-undef */
-    domSnapshot: PercyDOM.serialize(options)
+    domSnapshot: await PercyDOM.serialize(options)
   }), {
     ...options,
     ignoreCanvasSerializationErrors: ignoreCanvasSerializationErrors(options),
