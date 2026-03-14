@@ -15,21 +15,6 @@ const log = utils.logger('selenium-webdriver');
 const CS_MAX_SCREENSHOT_LIMIT = 25000;
 const SCROLL_DEFAULT_SLEEP_TIME = 0.45; // 450ms
 
-const getWidthsForMultiDOM = (userPassedWidths, eligibleWidths) => {
-  // Deep copy of eligible mobile widths
-  let allWidths = [];
-  if (eligibleWidths?.mobile?.length !== 0) {
-    allWidths = allWidths.concat(eligibleWidths?.mobile);
-  }
-  if (userPassedWidths.length !== 0) {
-    allWidths = allWidths.concat(userPassedWidths);
-  } else {
-    allWidths = allWidths.concat(eligibleWidths.config);
-  }
-
-  return [...new Set(allWidths)].filter(e => e); // Removing duplicates
-};
-
 async function changeWindowDimensionAndWait(driver, width, height, resizeCount) {
   try {
     const caps = await driver.getCapabilities();
@@ -60,7 +45,7 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
 
 // Captures responsive DOM snapshots across different widths
 async function captureResponsiveDOM(driver, options) {
-  const widths = getWidthsForMultiDOM(options.widths || [], utils.percy?.widths);
+  const widthHeights = await utils.getResponsiveWidths(options.widths || []);
   const domSnapshots = [];
   const windowSize = await driver.manage().window().getRect();
   let currentWidth = windowSize.width; let currentHeight = windowSize.height;
@@ -69,11 +54,12 @@ async function captureResponsiveDOM(driver, options) {
   // Setup the resizeCount listener if not present
   /* istanbul ignore next: no instrumenting injected code */
   await driver.executeScript('PercyDOM.waitForResize()');
-  let height = currentHeight;
+  let defaultHeight = currentHeight;
   if (process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT) {
-    height = await driver.executeScript(`return window.outerHeight - window.innerHeight + ${utils.percy?.config?.snapshot?.minHeight}`);
+    defaultHeight = await driver.executeScript(`return window.outerHeight - window.innerHeight + ${utils.percy?.config?.snapshot?.minHeight}`);
   }
-  for (let width of widths) {
+  for (let { width, height } of widthHeights) {
+    height = height || defaultHeight;
     if (lastWindowWidth !== width) {
       resizeCount++;
       await changeWindowDimensionAndWait(driver, width, height, resizeCount);
@@ -103,13 +89,13 @@ async function captureResponsiveDOM(driver, options) {
   return domSnapshots;
 }
 
-
 async function captureSerializedDOM(driver, options) {
   // Fetch the script once at the start of serialization
   const percyDOMScript = await utils.fetchPercyDOM();
 
   /* istanbul ignore next */
   let { domSnapshot } = await driver.executeScript(async (options) => ({
+    /* eslint-disable-next-line no-undef */
     domSnapshot: await PercyDOM.serialize(options)
   }), {
     ...options,
@@ -140,18 +126,13 @@ async function captureSerializedDOM(driver, options) {
           }
         }
       } catch (e) {
-        // Covers both invalid URLs (new URL throws) and errors rethrown by processFrame.
         log.debug(`Skipping iframe "${src}": ${e.message}`);
       }
     }
     if (processedFrames.length > 0) {
-      // Stitch each cross-origin iframe's serialized HTML directly into the main
-      // DOM snapshot via srcdoc — Percy core has no dedicated corsIframes field.
       domSnapshot = stitchCorsIframes(domSnapshot, processedFrames);
     }
   } catch (e) {
-    // processFrame already calls defaultContent() via its finally block, so no
-    // extra switchTo() is needed here. Log the outer error for traceability.
     log.debug(`Error during cross-origin iframe processing: ${e.message}`);
   }
 
@@ -162,21 +143,18 @@ async function captureSerializedDOM(driver, options) {
 /**
  * Embeds each cross-origin iframe's serialized HTML back into the main DOM
  * snapshot by setting a `srcdoc` attribute on the matching iframe element
- * (identified by data-percy-element-id). This mirrors how Percy DOM handles
- * same-origin iframes and avoids passing any unknown fields to Percy core.
+ * (identified by data-percy-element-id). Percy core has no corsIframes field,
+ * so srcdoc injection is used to pass cross-origin iframe content inline.
  */
 function stitchCorsIframes(domSnapshot, processedFrames) {
   let html = domSnapshot.html;
   for (const { iframeData: { percyElementId }, iframeSnapshot } of processedFrames) {
     if (!iframeSnapshot?.html) continue;
-    // Escape the iframe HTML for safe embedding inside a double-quoted attribute.
     const srcdocValue = iframeSnapshot.html
       .replace(/&/g, '&amp;')
       .replace(/"/g, '&quot;');
-    // Match the <iframe> tag that carries this percyElementId and inject srcdoc.
-    // The 's' flag makes '.' match newlines (multi-line attribute lists).
     html = html.replace(
-      new RegExp(`(<iframe\\b[^>]*?data-percy-element-id="${percyElementId}"[^>]*?)(\/?>)`, 's'),
+      new RegExp(`(<iframe\\b[^>]*?data-percy-element-id="${percyElementId}"[^>]*?)(/?>)`, 's'),
       `$1 srcdoc="${srcdocValue}">`
     );
   }
@@ -212,17 +190,17 @@ async function processFrame(driver, frameElement, options, percyDOMScript) {
     await driver.switchTo().frame(frameElement);
     await driver.executeScript(percyDOMScript);
     iframeSnapshot = await driver.executeScript(async (options) => {
+      /* eslint-disable-next-line no-undef */
       return await PercyDOM.serialize({ ...options, enableJavaScript: true });
     }, options);
   } catch (e) {
     log.error(`Failed to process cross-origin frame ${frameURL}: ${e.message}`);
-    throw e; // rethrow so the caller can decide whether to skip or abort
+    throw e;
   } finally {
-    // Always attempt to leave the iframe context, regardless of success/failure.
     try {
       await driver.switchTo().defaultContent();
     } catch (err) {
-      // If we cannot exit the iframe the driver is likely unstable — escalate.
+      // eslint-disable-next-line no-unsafe-finally
       throw new Error(`Fatal: could not exit iframe context after processing "${frameURL}". Driver may be unstable. ${err.message}`);
     }
   }
@@ -233,7 +211,6 @@ async function processFrame(driver, frameElement, options, percyDOMScript) {
     frameUrl: frameURL
   };
 }
-
 
 function isResponsiveDOMCaptureValid(options) {
   if (utils.percy?.config?.percy?.deferUploads) {
