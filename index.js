@@ -103,6 +103,86 @@ async function captureResponsiveDOM(driver, options) {
   return domSnapshots;
 }
 
+
+async function captureSerializedDOM(driver, options) {
+  // Fetch the script once at the start of serialization
+  const percyDOMScript = await utils.fetchPercyDOM();
+
+  /* istanbul ignore next */
+  let { domSnapshot } = await driver.executeScript(async (options) => ({
+    domSnapshot: await PercyDOM.serialize(options)
+  }), {
+    ...options,
+    ignoreCanvasSerializationErrors: ignoreCanvasSerializationErrors(options),
+    ignoreStyleSheetSerializationErrors: ignoreStyleSheetSerializationErrors(options)
+  });
+
+  try {
+    const currentUrl = new URL(await driver.getCurrentUrl());
+    const iframes = await driver.findElements({ css: 'iframe' });
+    const processedFrames = [];
+
+    for (const frame of iframes) {
+      const src = await frame.getAttribute('src');
+      if (!src || src === 'about:blank' || src.startsWith('javascript:')) continue;
+
+      try {
+        const frameUrl = new URL(src, currentUrl.href);
+        // Cross-origin check
+        if (frameUrl.origin !== currentUrl.origin) {
+          log.debug(`Processing cross-origin iframe: ${frameUrl.href}`);
+          const result = await processFrame(driver, frame, options, percyDOMScript);
+          if (result) {
+            log.debug(`Successfully captured cross-origin iframe: ${frameUrl.href}`);
+            processedFrames.push(result);
+          } else {
+            log.debug(`Skipped cross-origin iframe (no percyElementId): ${frameUrl.href}`);
+          }
+        }
+      } catch (e) {
+        // Covers both invalid URLs (new URL throws) and errors rethrown by processFrame.
+        log.debug(`Skipping iframe "${src}": ${e.message}`);
+      }
+    }
+    if (processedFrames.length > 0) {
+      // Stitch each cross-origin iframe's serialized HTML directly into the main
+      // DOM snapshot via srcdoc — Percy core has no dedicated corsIframes field.
+      domSnapshot = stitchCorsIframes(domSnapshot, processedFrames);
+    }
+  } catch (e) {
+    // processFrame already calls defaultContent() via its finally block, so no
+    // extra switchTo() is needed here. Log the outer error for traceability.
+    log.debug(`Error during cross-origin iframe processing: ${e.message}`);
+  }
+
+  /* istanbul ignore next */
+  domSnapshot.cookies = await driver.manage().getCookies() || [];
+  return domSnapshot;
+}
+/**
+ * Embeds each cross-origin iframe's serialized HTML back into the main DOM
+ * snapshot by setting a `srcdoc` attribute on the matching iframe element
+ * (identified by data-percy-element-id). This mirrors how Percy DOM handles
+ * same-origin iframes and avoids passing any unknown fields to Percy core.
+ */
+function stitchCorsIframes(domSnapshot, processedFrames) {
+  let html = domSnapshot.html;
+  for (const { iframeData: { percyElementId }, iframeSnapshot } of processedFrames) {
+    if (!iframeSnapshot?.html) continue;
+    // Escape the iframe HTML for safe embedding inside a double-quoted attribute.
+    const srcdocValue = iframeSnapshot.html
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;');
+    // Match the <iframe> tag that carries this percyElementId and inject srcdoc.
+    // The 's' flag makes '.' match newlines (multi-line attribute lists).
+    html = html.replace(
+      new RegExp(`(<iframe\\b[^>]*?data-percy-element-id="${percyElementId}"[^>]*?)(\/?>)`, 's'),
+      `$1 srcdoc="${srcdocValue}">`
+    );
+  }
+  return { ...domSnapshot, html };
+}
+
 function ignoreCanvasSerializationErrors(options) {
   return options?.ignoreCanvasSerializationErrors ??
          utils.percy?.config?.snapshot?.ignoreCanvasSerializationErrors ??
@@ -115,24 +195,49 @@ function ignoreStyleSheetSerializationErrors(options) {
          false;
 }
 
-async function captureSerializedDOM(driver, options) {
-  /* istanbul ignore next: no instrumenting injected code */
-  let { domSnapshot } = await driver.executeScript(async (options) => ({
-    /* eslint-disable-next-line no-undef */
-    domSnapshot: await PercyDOM.serialize(options)
-  }), {
-    ...options,
-    ignoreCanvasSerializationErrors: ignoreCanvasSerializationErrors(options),
-    ignoreStyleSheetSerializationErrors: ignoreStyleSheetSerializationErrors(options)
-  });
+async function processFrame(driver, frameElement, options, percyDOMScript) {
+  // Read element attributes while still in parent context — these calls will
+  // fail if made after switchTo().frame().
+  const frameURL = await frameElement.getAttribute('src');
+  log.debug(`processFrame: checking iframe src="${frameURL}"`);
+  const percyElementId = await frameElement.getAttribute('data-percy-element-id');
+  log.debug(`processFrame: data-percy-element-id="${percyElementId}" for src="${frameURL}"`);
+  if (!percyElementId) {
+    log.debug(`Skipping frame ${frameURL}: no data-percy-element-id found — ensure PercyDOM.serialize() ran before iframe scanning`);
+    return null;
+  }
 
-  /* istanbul ignore next: no instrumenting injected code */
-  domSnapshot.cookies = await driver.manage().getCookies() || [];
-  return domSnapshot;
+  let iframeSnapshot;
+  try {
+    await driver.switchTo().frame(frameElement);
+    await driver.executeScript(percyDOMScript);
+    iframeSnapshot = await driver.executeScript(async (options) => {
+      return await PercyDOM.serialize({ ...options, enableJavaScript: true });
+    }, options);
+  } catch (e) {
+    log.error(`Failed to process cross-origin frame ${frameURL}: ${e.message}`);
+    throw e; // rethrow so the caller can decide whether to skip or abort
+  } finally {
+    // Always attempt to leave the iframe context, regardless of success/failure.
+    try {
+      await driver.switchTo().defaultContent();
+    } catch (err) {
+      // If we cannot exit the iframe the driver is likely unstable — escalate.
+      throw new Error(`Fatal: could not exit iframe context after processing "${frameURL}". Driver may be unstable. ${err.message}`);
+    }
+  }
+
+  return {
+    iframeData: { percyElementId },
+    iframeSnapshot,
+    frameUrl: frameURL
+  };
 }
+
 
 function isResponsiveDOMCaptureValid(options) {
   if (utils.percy?.config?.percy?.deferUploads) {
+    log.error('Responsive capture disabled: deferUploads is true'); // <-- ADD THIS
     return false;
   }
   return (
