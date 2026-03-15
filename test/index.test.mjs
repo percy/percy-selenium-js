@@ -930,7 +930,6 @@ describe('createRegion', () => {
 describe('stitchCorsIframes', () => {
   let switchSpies;
   let frameElement;
-  let iframeDriver;
 
   function buildDriver(mainHtml, iframeHtml, frameSrc = 'https://cross.example.com/', percyElementId = 'pid-1') {
     switchSpies = {
@@ -944,14 +943,15 @@ describe('stitchCorsIframes', () => {
         return Promise.resolve(null);
       })
     };
-    let callCount = 0;
+    let serializeCallCount = 0;
     return {
       getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
       findElements: jasmine.createSpy().and.returnValue(Promise.resolve([frameElement])),
       switchTo: jasmine.createSpy().and.returnValue(switchSpies),
-      executeScript: jasmine.createSpy('executeScript').and.callFake(async () => {
-        callCount++;
-        if (callCount === 1) return { domSnapshot: { html: mainHtml, resources: [] } };
+      executeScript: jasmine.createSpy('executeScript').and.callFake(async (script, ...args) => {
+        if (typeof script === 'string') return null;
+        serializeCallCount++;
+        if (serializeCallCount === 1) return { domSnapshot: { html: mainHtml, resources: [] } };
         return iframeHtml ? { html: iframeHtml, resources: [] } : { resources: [] };
       }),
       manage: jasmine.createSpy().and.returnValue({
@@ -1302,12 +1302,6 @@ describe('captureSerializedDOM - iframe src filtering', () => {
     expect(driver._switchSpies.frame).not.toHaveBeenCalledWith(sameOrigin);
   });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Feature: captureResponsiveDOM with utils.getResponsiveWidths({width, height})
-// utils.getResponsiveWidths is non-writable; widths are configured via the
-// mock Percy CLI server which handles /percy/widths-config.
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe('captureResponsiveDOM - getResponsiveWidths height/width handling', () => {
   let mockedDriver;
