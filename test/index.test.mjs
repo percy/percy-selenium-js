@@ -1523,5 +1523,83 @@ describe('stitchCorsIframes unit tests', () => {
     expect(result.html).not.toBe(domSnapshot.html);
     expect(result.html).toContain('srcdoc=');
   });
+
+  it('merges iframe resources into combined resources when iframeSnapshot has resources', () => {
+    const pid = 'res-pid';
+    const domSnapshot = {
+      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
+      resources: [{ url: 'https://main.example.com/main.css' }]
+    };
+    const iframeResource = { url: 'https://cross.example.com/frame.css' };
+    const processedFrames = [
+      {
+        iframeData: { percyElementId: pid },
+        iframeSnapshot: {
+          html: '<html></html>',
+          resources: [iframeResource]
+        }
+      }
+    ];
+
+    const result = stitchCorsIframes(domSnapshot, processedFrames);
+
+    expect(result.resources.length).toBe(2);
+    expect(result.resources).toContain(iframeResource);
+  });
+
+  it('deduplicates iframe resources already present in the main snapshot', () => {
+    const pid = 'dedup-pid';
+    const sharedResource = { url: 'https://shared.example.com/shared.css' };
+    const domSnapshot = {
+      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
+      resources: [sharedResource]
+    };
+    const processedFrames = [
+      {
+        iframeData: { percyElementId: pid },
+        iframeSnapshot: {
+          html: '<html></html>',
+          resources: [
+            sharedResource, // duplicate — same url, should be skipped
+            { url: 'https://cross.example.com/new.css' } // new — should be added
+          ]
+        }
+      }
+    ];
+
+    const result = stitchCorsIframes(domSnapshot, processedFrames);
+
+    expect(result.resources.length).toBe(2);
+    const urls = result.resources.map(r => r.url);
+    expect(urls).toContain('https://shared.example.com/shared.css');
+    expect(urls).toContain('https://cross.example.com/new.css');
+  });
+
+  it('skips iframe resources that have no url or a non-string url', () => {
+    const pid = 'nullurl-pid';
+    const domSnapshot = {
+      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
+      resources: []
+    };
+    const processedFrames = [
+      {
+        iframeData: { percyElementId: pid },
+        iframeSnapshot: {
+          html: '<html></html>',
+          resources: [
+            null,                          // falsy resource
+            { url: 123 },                  // non-string url
+            {},                            // missing url
+            { url: 'https://cross.example.com/valid.css' } // only valid one
+          ]
+        }
+      }
+    ];
+
+    const result = stitchCorsIframes(domSnapshot, processedFrames);
+
+    expect(result.resources.length).toBe(1);
+    expect(result.resources[0].url).toBe('https://cross.example.com/valid.css');
+  });
 });
 
