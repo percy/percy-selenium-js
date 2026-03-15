@@ -158,6 +158,15 @@ function escapeRegExp(string) {
 
 function stitchCorsIframes(domSnapshot, processedFrames) {
   let html = domSnapshot.html;
+  const combinedResources = Array.isArray(domSnapshot.resources)
+    ? domSnapshot.resources.slice()
+    : [];
+  const seenResourceUrls = new Set(
+    combinedResources
+      .map(r => (r && typeof r.url === 'string' ? r.url : null))
+      .filter(Boolean)
+  );
+
   for (const { iframeData: { percyElementId }, iframeSnapshot } of processedFrames) {
     if (!iframeSnapshot?.html) continue;
     const srcdocValue = iframeSnapshot.html
@@ -172,8 +181,17 @@ function stitchCorsIframes(domSnapshot, processedFrames) {
       iframeRegex,
       (match, iframeStart, iframeEnd) => `${iframeStart} srcdoc="${srcdocValue}">`
     );
+
+    if (Array.isArray(iframeSnapshot.resources)) {
+      for (const resource of iframeSnapshot.resources) {
+        const url = resource && typeof resource.url === 'string' ? resource.url : null;
+        if (!url || seenResourceUrls.has(url)) continue;
+        combinedResources.push(resource);
+        seenResourceUrls.add(url);
+      }
+    }
   }
-  return { ...domSnapshot, html };
+  return { ...domSnapshot, html, resources: combinedResources };
 }
 
 function ignoreCanvasSerializationErrors(options) {
