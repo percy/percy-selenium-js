@@ -189,6 +189,7 @@ async function processFrame(driver, frameElement, options, percyDOMScript) {
   try {
     await driver.switchTo().frame(frameElement);
     await driver.executeScript(percyDOMScript);
+    /* istanbul ignore next: no instrumenting injected code */
     iframeSnapshot = await driver.executeScript(async (options) => {
       /* eslint-disable-next-line no-undef */
       return await PercyDOM.serialize({ ...options, enableJavaScript: true });
@@ -340,6 +341,7 @@ const percySnapshot = async function percySnapshot(driver, name, options) {
 module.exports = percySnapshot;
 module.exports.percySnapshot = percySnapshot;
 module.exports.createRegion = createRegion;
+module.exports.stitchCorsIframes = stitchCorsIframes;
 
 module.exports.request = async function request(data) {
   return await utils.captureAutomateScreenshot(data);

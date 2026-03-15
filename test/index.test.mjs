@@ -1,17 +1,28 @@
+import fs from 'node:fs';
 import webdriver from 'selenium-webdriver';
+import firefox from 'selenium-webdriver/firefox.js';
 import helpers from '@percy/sdk-utils/test/helpers';
 import percySnapshot from '../index.js';
 import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
-const { percyScreenshot, slowScrollToBottom, createRegion } = percySnapshot;
+const { percyScreenshot, slowScrollToBottom, createRegion, stitchCorsIframes } = percySnapshot;
 
 describe('percySnapshot', () => {
   let driver;
   let mockedDriver;
 
   beforeAll(async function() {
+    let firefoxOptions = new firefox.Options();
+    let firefoxBinary = '/Applications/Firefox.app/Contents/MacOS/firefox';
+
+    if (process.platform === 'darwin' && fs.existsSync(firefoxBinary)) {
+      firefoxOptions.setBinary(firefoxBinary);
+    }
+
     driver = await new webdriver.Builder()
-      .forBrowser('firefox').build();
+      .forBrowser('firefox')
+      .setFirefoxOptions(firefoxOptions)
+      .build();
 
     mockedDriver = {
       getCapabilities: jasmine.createSpy('sendDevToolsCommand').and.returnValue({ getBrowserName: () => 'chrome' }),
@@ -1168,6 +1179,35 @@ describe('processFrame - cross-origin iframe switching', () => {
 
     expect(switchSpies.defaultContent).toHaveBeenCalled();
   });
+
+  it('throws Fatal error (line 204) when defaultContent rejects inside processFrame finally', async () => {
+    const pid = 'fatal-pid';
+    const mainHtml = `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`;
+
+    const switchSpies = {
+      frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
+      defaultContent: jasmine.createSpy('defaultContent').and.rejectWith(new Error('driver context lost'))
+    };
+    mockedIframeDriver.switchTo.and.returnValue(switchSpies);
+    mockedIframeDriver.findElements.and.returnValue(Promise.resolve([frameElement]));
+
+    // Use typeof to distinguish string (percyDOM inject) from function (serialize) calls
+    mockedIframeDriver.executeScript.and.callFake(async (script) => {
+      if (typeof script === 'string') return undefined; // percyDOM inject — string argument
+      if (!mockedIframeDriver._mainSerialized) {
+        mockedIframeDriver._mainSerialized = true;
+        return { domSnapshot: { html: mainHtml, resources: [] } }; // main page serialize
+      }
+      return { html: '<html></html>' }; // frame serialize
+    });
+    delete mockedIframeDriver._mainSerialized;
+
+    // The Fatal throw from line 204 is swallowed by captureSerializedDOM outer catch
+    await expectAsync(percySnapshot(mockedIframeDriver, 'fatal defaultContent test'))
+      .not.toBeRejected();
+
+    expect(switchSpies.defaultContent).toHaveBeenCalled();
+  });
 });
 
 describe('captureSerializedDOM - iframe src filtering', () => {
@@ -1416,6 +1456,78 @@ describe('captureResponsiveDOM - getResponsiveWidths height/width handling', () 
     expect(mockedDriver.manage().window().setRect).toHaveBeenCalledWith(
       jasmine.objectContaining({ width: 375 })
     );
+  });
+});
+
+describe('stitchCorsIframes unit tests', () => {
+  it('replaces matching iframe element with srcdoc attribute from iframeSnapshot', () => {
+    const pid = 'testpid-1';
+    const domSnapshot = {
+      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
+      resources: []
+    };
+    const processedFrames = [
+      { iframeData: { percyElementId: pid }, iframeSnapshot: { html: '<html><body>frame content</body></html>' } }
+    ];
+
+    const result = stitchCorsIframes(domSnapshot, processedFrames);
+
+    expect(result.html).toContain(`srcdoc="`);
+    expect(result.html).toContain('frame content');
+    expect(result.resources).toEqual([]);
+  });
+
+  it('escapes & and " characters in iframe html before embedding', () => {
+    const pid = 'esc-pid';
+    const domSnapshot = {
+      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"/></html>`,
+      resources: []
+    };
+    const iframeHtml = '<html><body>a & b "quoted"</body></html>';
+    const processedFrames = [
+      { iframeData: { percyElementId: pid }, iframeSnapshot: { html: iframeHtml } }
+    ];
+
+    const result = stitchCorsIframes(domSnapshot, processedFrames);
+
+    expect(result.html).toContain('&amp;');
+    expect(result.html).toContain('&quot;');
+    expect(result.html).not.toContain(' & ');
+  });
+
+  it('skips a frame entry when iframeSnapshot has no html property', () => {
+    const pid = 'nohtml-pid';
+    const originalHtml = `<html><body><iframe data-percy-element-id="${pid}"/></body></html>`;
+    const domSnapshot = { html: originalHtml, resources: [] };
+    const processedFrames = [
+      { iframeData: { percyElementId: pid }, iframeSnapshot: { resources: [] } }
+    ];
+
+    const result = stitchCorsIframes(domSnapshot, processedFrames);
+
+    expect(result.html).not.toContain('srcdoc');
+    expect(result.html).toBe(originalHtml);
+  });
+
+  it('preserves all other domSnapshot fields and returns updated html', () => {
+    const pid = 'meta-pid';
+    const domSnapshot = {
+      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
+      resources: ['res1', 'res2'],
+      meta: 'extra',
+      cookies: []
+    };
+    const processedFrames = [
+      { iframeData: { percyElementId: pid }, iframeSnapshot: { html: '<html></html>' } }
+    ];
+
+    const result = stitchCorsIframes(domSnapshot, processedFrames);
+
+    expect(result.resources).toEqual(['res1', 'res2']);
+    expect(result.meta).toBe('extra');
+    expect(result.cookies).toEqual([]);
+    expect(result.html).not.toBe(domSnapshot.html);
+    expect(result.html).toContain('srcdoc=');
   });
 });
 
