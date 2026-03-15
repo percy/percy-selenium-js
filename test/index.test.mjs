@@ -1601,5 +1601,27 @@ describe('stitchCorsIframes unit tests', () => {
     expect(result.resources.length).toBe(1);
     expect(result.resources[0].url).toBe('https://cross.example.com/valid.css');
   });
+
+  it('defaults combinedResources to [] when domSnapshot.resources is not an array', () => {
+    const pid = 'no-resources-pid';
+    const domSnapshot = {
+      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`
+    };
+    const iframeResource = { url: 'https://cross.example.com/frame.css' };
+    const processedFrames = [
+      {
+        iframeData: { percyElementId: pid },
+        iframeSnapshot: {
+          html: '<html></html>',
+          resources: [iframeResource]
+        }
+      }
+    ];
+
+    const result = stitchCorsIframes(domSnapshot, processedFrames);
+    expect(Array.isArray(result.resources)).toBe(true);
+    expect(result.resources.length).toBe(1);
+    expect(result.resources[0].url).toBe('https://cross.example.com/frame.css');
+  });
 });
 
