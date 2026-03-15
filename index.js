@@ -11,7 +11,7 @@ const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 const utils = require('@percy/sdk-utils');
 const { DriverMetadata } = require('./driverMetadata');
- const { By } = require('selenium-webdriver');
+const { By } = require('selenium-webdriver');
 const log = utils.logger('selenium-webdriver');
 const CS_MAX_SCREENSHOT_LIMIT = 25000;
 const SCROLL_DEFAULT_SLEEP_TIME = 0.45; // 450ms
@@ -153,27 +153,27 @@ async function captureSerializedDOM(driver, options) {
  * so srcdoc injection is used to pass cross-origin iframe content inline.
  */
 function escapeRegExp(string) {
-   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
- }
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 function stitchCorsIframes(domSnapshot, processedFrames) {
-   let html = domSnapshot.html;
-   for (const { iframeData: { percyElementId }, iframeSnapshot } of processedFrames) {
-     if (!iframeSnapshot?.html) continue;
-     const srcdocValue = iframeSnapshot.html
-       .replace(/&/g, '&amp;')
-       .replace(/"/g, '&quot;');
-     const escapedId = escapeRegExp(percyElementId);
-     const iframeRegex = new RegExp(
+  let html = domSnapshot.html;
+  for (const { iframeData: { percyElementId }, iframeSnapshot } of processedFrames) {
+    if (!iframeSnapshot?.html) continue;
+    const srcdocValue = iframeSnapshot.html
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;');
+    const escapedId = escapeRegExp(percyElementId);
+    const iframeRegex = new RegExp(
        `(<iframe\\b[^>]*?data-percy-element-id="${escapedId}"[^>]*?)(/?>)`,
        's'
-     );
-     html = html.replace(
-       iframeRegex,
-       (match, iframeStart, iframeEnd) => `${iframeStart} srcdoc="${srcdocValue}">`
-     );
-   }
-   return { ...domSnapshot, html };
+    );
+    html = html.replace(
+      iframeRegex,
+      (match, iframeStart, iframeEnd) => `${iframeStart} srcdoc="${srcdocValue}">`
+    );
+  }
+  return { ...domSnapshot, html };
 }
 
 function ignoreCanvasSerializationErrors(options) {
