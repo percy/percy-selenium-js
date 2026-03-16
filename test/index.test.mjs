@@ -5,7 +5,7 @@ import helpers from '@percy/sdk-utils/test/helpers';
 import percySnapshot from '../index.js';
 import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
-const { percyScreenshot, slowScrollToBottom, createRegion, stitchCorsIframes } = percySnapshot;
+const { percyScreenshot, slowScrollToBottom, createRegion } = percySnapshot;
 
 describe('percySnapshot', () => {
   let driver;
@@ -927,7 +927,7 @@ describe('createRegion', () => {
   });
 });
 
-describe('stitchCorsIframes', () => {
+describe('CORS iframe capture in captureSerializedDOM', () => {
   let switchSpies;
   let frameElement;
 
@@ -998,7 +998,7 @@ describe('stitchCorsIframes', () => {
       null // no html in iframe snapshot
     );
     await expectAsync(percySnapshot(driver, 'iframe no-html')).not.toBeRejected();
-    // switchTo.frame IS called (to try capture), but stitchCorsIframes skips it due to missing html
+    // switchTo.frame IS called (to try capture), but corsIframes entry is skipped by core due to missing html
     expect(switchSpies.frame).toHaveBeenCalled();
   });
 
@@ -1453,175 +1453,135 @@ describe('captureResponsiveDOM - getResponsiveWidths height/width handling', () 
   });
 });
 
-describe('stitchCorsIframes unit tests', () => {
-  it('replaces matching iframe element with srcdoc attribute from iframeSnapshot', () => {
-    const pid = 'testpid-1';
-    const domSnapshot = {
-      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
-      resources: []
-    };
-    const processedFrames = [
-      { iframeData: { percyElementId: pid }, iframeSnapshot: { html: '<html><body>frame content</body></html>' } }
-    ];
-
-    const result = stitchCorsIframes(domSnapshot, processedFrames);
-
-    expect(result.html).toContain(`srcdoc="`);
-    expect(result.html).toContain('frame content');
-    expect(result.resources).toEqual([]);
+describe('corsIframes population in captureSerializedDOM', () => {
+  beforeEach(async () => {
+    await helpers.setupTest();
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.type = 'web';
+    utils.percy.config = {};
   });
 
-  it('escapes & and " characters in iframe html before embedding', () => {
-    const pid = 'esc-pid';
-    const domSnapshot = {
-      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"/></html>`,
-      resources: []
+  async function getSnapshotBody() {
+    const requests = await helpers.get('requests', r => r);
+    const snap = requests.find(r => r.url === '/percy/snapshot');
+    return snap?.body ?? null;
+  }
+
+  function buildCorsDriver(pid, mainHtml, iframeHtml, frameSrc = 'https://cross.example.com/') {
+    let callCount = 0;
+    const switchSpies = {
+      frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
+      defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
     };
-    const iframeHtml = '<html><body>a & b "quoted"</body></html>';
-    const processedFrames = [
-      { iframeData: { percyElementId: pid }, iframeSnapshot: { html: iframeHtml } }
-    ];
+    const frameElement = {
+      getAttribute: jasmine.createSpy('getAttribute').and.callFake(attr => {
+        if (attr === 'src') return Promise.resolve(frameSrc);
+        if (attr === 'data-percy-element-id') return Promise.resolve(pid);
+        return Promise.resolve(null);
+      })
+    };
+    const driver = {
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
+      findElements: jasmine.createSpy().and.returnValue(Promise.resolve([frameElement])),
+      switchTo: jasmine.createSpy().and.returnValue(switchSpies),
+      executeScript: jasmine.createSpy('executeScript').and.callFake(async (script) => {
+        callCount++;
+        if (typeof script === 'string') return undefined; // percyDOM inject
+        if (callCount <= 2) return { domSnapshot: { html: mainHtml, resources: [] } };
+        return iframeHtml ? { html: iframeHtml, resources: [] } : { resources: [] };
+      }),
+      manage: jasmine.createSpy().and.returnValue({
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      })
+    };
+    return { driver, frameElement, switchSpies };
+  }
 
-    const result = stitchCorsIframes(domSnapshot, processedFrames);
+  it('sets corsIframes on domSnapshot when cross-origin frames are captured', async () => {
+    const pid = 'cors-pid-1';
+    const { driver } = buildCorsDriver(
+      pid,
+      `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
+      '<html><body>cross frame</body></html>'
+    );
 
-    expect(result.html).toContain('&amp;');
-    expect(result.html).toContain('&quot;');
-    expect(result.html).not.toContain(' & ');
+    await percySnapshot(driver, 'cors iframe test');
+
+    const body = await getSnapshotBody();
+    expect(body).not.toBeNull();
+    const snap = Array.isArray(body.domSnapshot)
+      ? body.domSnapshot[0]
+      : body.domSnapshot;
+    expect(Array.isArray(snap.corsIframes)).toBeTrue();
+    expect(snap.corsIframes.length).toBe(1);
+    expect(snap.corsIframes[0].iframeData.percyElementId).toBe(pid);
+    expect(snap.corsIframes[0].iframeSnapshot.html).toContain('cross frame');
+    expect(snap.corsIframes[0].frameUrl).toBe('https://cross.example.com/');
   });
 
-  it('skips a frame entry when iframeSnapshot has no html property', () => {
-    const pid = 'nohtml-pid';
-    const originalHtml = `<html><body><iframe data-percy-element-id="${pid}"/></body></html>`;
-    const domSnapshot = { html: originalHtml, resources: [] };
-    const processedFrames = [
-      { iframeData: { percyElementId: pid }, iframeSnapshot: { resources: [] } }
-    ];
+  it('does not set corsIframes when no cross-origin frames are found', async () => {
+    const driver = {
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
+      findElements: jasmine.createSpy().and.returnValue(Promise.resolve([])),
+      switchTo: jasmine.createSpy(),
+      executeScript: jasmine.createSpy('executeScript').and.returnValue(
+        Promise.resolve({ domSnapshot: { html: '<html></html>', resources: [] } })
+      ),
+      manage: jasmine.createSpy().and.returnValue({
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      })
+    };
 
-    const result = stitchCorsIframes(domSnapshot, processedFrames);
+    await percySnapshot(driver, 'no cors frames test');
 
-    expect(result.html).not.toContain('srcdoc');
-    expect(result.html).toBe(originalHtml);
+    const body = await getSnapshotBody();
+    expect(body).not.toBeNull();
+    const snap = Array.isArray(body.domSnapshot)
+      ? body.domSnapshot[0]
+      : body.domSnapshot;
+    expect(snap.corsIframes).toBeUndefined();
   });
 
-  it('preserves all other domSnapshot fields and returns updated html', () => {
-    const pid = 'meta-pid';
-    const domSnapshot = {
-      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
-      resources: ['res1', 'res2'],
-      meta: 'extra',
-      cookies: []
+  it('corsIframes entry has the correct structure for core processing', async () => {
+    const pid = 'struct-pid';
+    const frameResource = { url: 'https://cross.example.com/style.css' };
+    let callCount = 0;
+    const frameElement = {
+      getAttribute: jasmine.createSpy('getAttribute').and.callFake(attr => {
+        if (attr === 'src') return Promise.resolve('https://cross.example.com/frame');
+        if (attr === 'data-percy-element-id') return Promise.resolve(pid);
+        return Promise.resolve(null);
+      })
     };
-    const processedFrames = [
-      { iframeData: { percyElementId: pid }, iframeSnapshot: { html: '<html></html>' } }
-    ];
-
-    const result = stitchCorsIframes(domSnapshot, processedFrames);
-
-    expect(result.resources).toEqual(['res1', 'res2']);
-    expect(result.meta).toBe('extra');
-    expect(result.cookies).toEqual([]);
-    expect(result.html).not.toBe(domSnapshot.html);
-    expect(result.html).toContain('srcdoc=');
-  });
-
-  it('merges iframe resources into combined resources when iframeSnapshot has resources', () => {
-    const pid = 'res-pid';
-    const domSnapshot = {
-      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
-      resources: [{ url: 'https://main.example.com/main.css' }]
+    const driver = {
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
+      findElements: jasmine.createSpy().and.returnValue(Promise.resolve([frameElement])),
+      switchTo: jasmine.createSpy().and.returnValue({
+        frame: jasmine.createSpy().and.returnValue(Promise.resolve()),
+        defaultContent: jasmine.createSpy().and.returnValue(Promise.resolve())
+      }),
+      executeScript: jasmine.createSpy('executeScript').and.callFake(async (script) => {
+        callCount++;
+        if (typeof script === 'string') return undefined;
+        if (callCount <= 2) return { domSnapshot: { html: `<html><iframe data-percy-element-id="${pid}" src="https://cross.example.com/frame"></iframe></html>`, resources: [] } };
+        return { html: '<html><body>frame body</body></html>', resources: [frameResource] };
+      }),
+      manage: jasmine.createSpy().and.returnValue({
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      })
     };
-    const iframeResource = { url: 'https://cross.example.com/frame.css' };
-    const processedFrames = [
-      {
-        iframeData: { percyElementId: pid },
-        iframeSnapshot: {
-          html: '<html></html>',
-          resources: [iframeResource]
-        }
-      }
-    ];
 
-    const result = stitchCorsIframes(domSnapshot, processedFrames);
+    await percySnapshot(driver, 'corsIframes structure test');
 
-    expect(result.resources.length).toBe(2);
-    expect(result.resources).toContain(iframeResource);
-  });
-
-  it('deduplicates iframe resources already present in the main snapshot', () => {
-    const pid = 'dedup-pid';
-    const sharedResource = { url: 'https://shared.example.com/shared.css' };
-    const domSnapshot = {
-      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
-      resources: [sharedResource]
-    };
-    const processedFrames = [
-      {
-        iframeData: { percyElementId: pid },
-        iframeSnapshot: {
-          html: '<html></html>',
-          resources: [
-            sharedResource, // duplicate — same url, should be skipped
-            { url: 'https://cross.example.com/new.css' } // new — should be added
-          ]
-        }
-      }
-    ];
-
-    const result = stitchCorsIframes(domSnapshot, processedFrames);
-
-    expect(result.resources.length).toBe(2);
-    const urls = result.resources.map(r => r.url);
-    expect(urls).toContain('https://shared.example.com/shared.css');
-    expect(urls).toContain('https://cross.example.com/new.css');
-  });
-
-  it('skips iframe resources that have no url or a non-string url', () => {
-    const pid = 'nullurl-pid';
-    const domSnapshot = {
-      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
-      resources: []
-    };
-    const processedFrames = [
-      {
-        iframeData: { percyElementId: pid },
-        iframeSnapshot: {
-          html: '<html></html>',
-          resources: [
-            null,                          // falsy resource
-            { url: 123 },                  // non-string url
-            {},                            // missing url
-            { url: 'https://cross.example.com/valid.css' } // only valid one
-          ]
-        }
-      }
-    ];
-
-    const result = stitchCorsIframes(domSnapshot, processedFrames);
-
-    expect(result.resources.length).toBe(1);
-    expect(result.resources[0].url).toBe('https://cross.example.com/valid.css');
-  });
-
-  it('defaults combinedResources to [] when domSnapshot.resources is not an array', () => {
-    const pid = 'no-resources-pid';
-    const domSnapshot = {
-      html: `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`
-    };
-    const iframeResource = { url: 'https://cross.example.com/frame.css' };
-    const processedFrames = [
-      {
-        iframeData: { percyElementId: pid },
-        iframeSnapshot: {
-          html: '<html></html>',
-          resources: [iframeResource]
-        }
-      }
-    ];
-
-    const result = stitchCorsIframes(domSnapshot, processedFrames);
-    expect(Array.isArray(result.resources)).toBe(true);
-    expect(result.resources.length).toBe(1);
-    expect(result.resources[0].url).toBe('https://cross.example.com/frame.css');
+    const body = await getSnapshotBody();
+    const snap = Array.isArray(body.domSnapshot)
+      ? body.domSnapshot[0]
+      : body.domSnapshot;
+    const entry = snap.corsIframes[0];
+    // Verify the shape expected by @percy/core processCorsIframesInDomSnapshot
+    expect(entry.frameUrl).toBe('https://cross.example.com/frame');
+    expect(entry.iframeData).toEqual({ percyElementId: pid });
+    expect(entry.iframeSnapshot.html).toContain('frame body');
+    expect(entry.iframeSnapshot.resources).toContain(frameResource);
   });
 });
-

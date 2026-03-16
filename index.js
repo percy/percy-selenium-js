@@ -136,62 +136,14 @@ async function captureSerializedDOM(driver, options) {
       }
     }
     if (processedFrames.length > 0) {
-      domSnapshot = stitchCorsIframes(domSnapshot, processedFrames);
+      domSnapshot.corsIframes = processedFrames;
     }
   } catch (e) {
     log.debug(`Error during cross-origin iframe processing: ${e.message}`);
   }
-
   /* istanbul ignore next */
   domSnapshot.cookies = await driver.manage().getCookies() || [];
   return domSnapshot;
-}
-/**
- * Embeds each cross-origin iframe's serialized HTML back into the main DOM
- * snapshot by setting a `srcdoc` attribute on the matching iframe element
- * (identified by data-percy-element-id). Percy core has no corsIframes field,
- * so srcdoc injection is used to pass cross-origin iframe content inline.
- */
-function escapeRegExp(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function stitchCorsIframes(domSnapshot, processedFrames) {
-  let html = domSnapshot.html;
-  const combinedResources = Array.isArray(domSnapshot.resources)
-    ? domSnapshot.resources.slice()
-    : [];
-  const seenResourceUrls = new Set(
-    combinedResources
-      .map(r => (r && typeof r.url === 'string' ? r.url : null))
-      .filter(Boolean)
-  );
-
-  for (const { iframeData: { percyElementId }, iframeSnapshot } of processedFrames) {
-    if (!iframeSnapshot?.html) continue;
-    const srcdocValue = iframeSnapshot.html
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;');
-    const escapedId = escapeRegExp(percyElementId);
-    const iframeRegex = new RegExp(
-       `(<iframe\\b[^>]*?data-percy-element-id="${escapedId}"[^>]*?)(/?>)`,
-       's'
-    );
-    html = html.replace(
-      iframeRegex,
-      (match, iframeStart, iframeEnd) => `${iframeStart} srcdoc="${srcdocValue}">`
-    );
-
-    if (Array.isArray(iframeSnapshot.resources)) {
-      for (const resource of iframeSnapshot.resources) {
-        const url = resource && typeof resource.url === 'string' ? resource.url : null;
-        if (!url || seenResourceUrls.has(url)) continue;
-        combinedResources.push(resource);
-        seenResourceUrls.add(url);
-      }
-    }
-  }
-  return { ...domSnapshot, html, resources: combinedResources };
 }
 
 function ignoreCanvasSerializationErrors(options) {
@@ -217,7 +169,6 @@ async function processFrame(driver, frameElement, options, percyDOMScript) {
     log.debug(`Skipping frame ${frameURL}: no data-percy-element-id found — ensure PercyDOM.serialize() ran before iframe scanning`);
     return null;
   }
-
   let iframeSnapshot;
   try {
     await driver.switchTo().frame(frameElement);
@@ -238,7 +189,6 @@ async function processFrame(driver, frameElement, options, percyDOMScript) {
       throw new Error(`Fatal: could not exit iframe context after processing "${frameURL}". Driver may be unstable. ${err.message}`);
     }
   }
-
   return {
     iframeData: { percyElementId },
     iframeSnapshot,
@@ -374,7 +324,6 @@ const percySnapshot = async function percySnapshot(driver, name, options) {
 module.exports = percySnapshot;
 module.exports.percySnapshot = percySnapshot;
 module.exports.createRegion = createRegion;
-module.exports.stitchCorsIframes = stitchCorsIframes;
 
 module.exports.request = async function request(data) {
   return await utils.captureAutomateScreenshot(data);
