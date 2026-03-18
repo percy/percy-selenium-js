@@ -45,7 +45,7 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
 }
 
 // Captures responsive DOM snapshots across different widths
-async function captureResponsiveDOM(driver, options) {
+async function captureResponsiveDOM(driver, options) {  
   const widthHeights = await utils.getResponsiveWidths(options.widths || []);
   const domSnapshots = [];
   const windowSize = await driver.manage().window().getRect();
@@ -111,13 +111,20 @@ async function captureSerializedDOM(driver, options) {
 
     for (const frame of iframes) {
       const src = await frame.getAttribute('src');
+      const srcdoc = await frame.getAttribute('srcdoc');
       if (
         !src ||
+        srcdoc || // Skip if content is inline (already captured in parent DOM)
         src === 'about:blank' ||
+        src === 'about:srcdoc' || // Chrome internal for srcdoc iframes
         src.startsWith('javascript:') ||
         src.startsWith('data:') ||
-        src.startsWith('vbscript:')
+        src.startsWith('vbscript:') ||
+        src.startsWith('blob:') || // Skip generated binary blobs
+        src.startsWith('chrome:') || // Skip browser internal pages
+        src.startsWith('chrome-extension:') // Skip extension-injected frames
       ) continue;
+
       try {
         const frameUrl = new URL(src, currentUrl.href);
         // Cross-origin check
