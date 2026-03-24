@@ -57,7 +57,7 @@ async function captureResponsiveDOM(driver, options) {
   await driver.executeScript('PercyDOM.waitForResize()');
   let defaultHeight = currentHeight;
   if (process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT) {
-    defaultHeight = await driver.executeScript(`return window.outerHeight - window.innerHeight + ${utils.percy?.config?.snapshot?.minHeight}`);
+    defaultHeight = await driver.executeScript(`return ${utils.percy?.config?.snapshot?.minHeight}`);
   }
   for (let { width, height } of widthHeights) {
     height = height || defaultHeight;
