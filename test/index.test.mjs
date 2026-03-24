@@ -25,7 +25,7 @@ describe('percySnapshot', () => {
       .build();
 
     mockedDriver = {
-      getCapabilities: jasmine.createSpy('sendDevToolsCommand').and.returnValue({ getBrowserName: () => 'chrome' }),
+      getCapabilities: jasmine.createSpy('getCapabilities').and.returnValue({ getBrowserName: () => 'chrome' }),
       sendDevToolsCommand: jasmine.createSpy('sendDevToolsCommand').and.returnValue(Promise.resolve()),
       navigate: jasmine.createSpy('navigate').and.returnValue({ refresh: jasmine.createSpy('refresh') }),
       manage: jasmine.createSpy('manage').and.returnValue({
@@ -235,7 +235,7 @@ describe('percySnapshot', () => {
     mockedDriver.executeScript.calls.reset();
     await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
 
-    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(4);
+    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(3);
     expect(mockedScroll).toHaveBeenCalledWith(mockedDriver);
     delete process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL;
     delete process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT;
@@ -1403,19 +1403,16 @@ describe('captureResponsiveDOM - getResponsiveWidths height/width handling', () 
     process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT = 'true';
     spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
     utils.percy.type = 'web';
-    utils.percy.config = { snapshot: { minHeight: 500 } };
+    utils.percy.config = { snapshot: { minHeight: 900 } };
     utils.percy.widths = { mobile: [], config: [375] };
 
-    let callIndex = 0;
-    mockedDriver.executeScript.and.callFake(async (script) => {
-      callIndex++;
-      if (typeof script === 'string' && script.includes('outerHeight')) return 900;
-      return { domSnapshot: { html: '<html></html>', resources: [] } };
-    });
+    mockedDriver.executeScript.and.returnValue(
+      Promise.resolve({ domSnapshot: { html: '<html></html>', resources: [] } })
+    );
 
     await percySnapshot(mockedDriver, 'minHeight env', { responsiveSnapshotCapture: true, widths: [375] });
 
-    // The height used should be the one returned by the outerHeight script (900), not window height (768)
+    // The height used should be the minHeight from config (900), not the window height (768)
     const calls = mockedDriver.sendDevToolsCommand.calls.allArgs()
       .filter(args => args[0] === 'Emulation.setDeviceMetricsOverride' && args[1].width === 375);
     expect(calls[0][1].height).toBe(900);
