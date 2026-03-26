@@ -45,7 +45,7 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
 }
 
 function isResponsiveMinHeightEnabled() {
-  const envVar = process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT || 
+  const envVar = process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT ||
                  process.env.RESONSIVE_CAPTURE_MIN_HEIGHT;
   return envVar?.toLowerCase() === 'true';
 }
