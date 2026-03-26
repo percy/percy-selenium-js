@@ -44,6 +44,11 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
   }
 }
 
+function isResponsiveMinHeightEnabled() {
+  const envVar = process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT || 
+                 process.env.RESONSIVE_CAPTURE_MIN_HEIGHT;
+  return envVar?.toLowerCase() === 'true';
+}
 // Captures responsive DOM snapshots across different widths
 async function captureResponsiveDOM(driver, options) {
   const widthHeights = await utils.getResponsiveWidths(options.widths || []);
@@ -56,7 +61,7 @@ async function captureResponsiveDOM(driver, options) {
   /* istanbul ignore next: no instrumenting injected code */
   await driver.executeScript('PercyDOM.waitForResize()');
   let defaultHeight = currentHeight;
-  if (process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT) {
+  if (isResponsiveMinHeightEnabled()) {
     defaultHeight = utils.percy?.config?.snapshot?.minHeight;
   }
   for (let { width, height } of widthHeights) {
@@ -67,7 +72,7 @@ async function captureResponsiveDOM(driver, options) {
       lastWindowWidth = width;
     }
 
-    if (process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE) {
+    if (process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE?.toLowerCase() === 'true') {
       await driver.navigate().refresh();
       await driver.executeScript(await utils.fetchPercyDOM());
     }
@@ -76,7 +81,7 @@ async function captureResponsiveDOM(driver, options) {
       await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) * 1000));
     }
 
-    if (process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL) {
+    if (process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL?.toLowerCase() === 'true') {
       await module.exports.slowScrollToBottom(driver);
     }
 
