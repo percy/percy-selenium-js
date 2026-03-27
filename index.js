@@ -11,24 +11,10 @@ const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 const utils = require('@percy/sdk-utils');
 const { DriverMetadata } = require('./driverMetadata');
+const { By } = require('selenium-webdriver');
 const log = utils.logger('selenium-webdriver');
 const CS_MAX_SCREENSHOT_LIMIT = 25000;
 const SCROLL_DEFAULT_SLEEP_TIME = 0.45; // 450ms
-
-const getWidthsForMultiDOM = (userPassedWidths, eligibleWidths) => {
-  // Deep copy of eligible mobile widths
-  let allWidths = [];
-  if (eligibleWidths?.mobile?.length !== 0) {
-    allWidths = allWidths.concat(eligibleWidths?.mobile);
-  }
-  if (userPassedWidths.length !== 0) {
-    allWidths = allWidths.concat(userPassedWidths);
-  } else {
-    allWidths = allWidths.concat(eligibleWidths.config);
-  }
-
-  return [...new Set(allWidths)].filter(e => e); // Removing duplicates
-};
 
 async function changeWindowDimensionAndWait(driver, width, height, resizeCount) {
   try {
@@ -58,9 +44,14 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
   }
 }
 
+function isResponsiveMinHeightEnabled() {
+  const envVar = process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT ||
+                 process.env.RESONSIVE_CAPTURE_MIN_HEIGHT;
+  return envVar?.toLowerCase() === 'true';
+}
 // Captures responsive DOM snapshots across different widths
 async function captureResponsiveDOM(driver, options) {
-  const widths = getWidthsForMultiDOM(options.widths || [], utils.percy?.widths);
+  const widthHeights = await utils.getResponsiveWidths(options.widths || []);
   const domSnapshots = [];
   const windowSize = await driver.manage().window().getRect();
   let currentWidth = windowSize.width; let currentHeight = windowSize.height;
@@ -69,18 +60,19 @@ async function captureResponsiveDOM(driver, options) {
   // Setup the resizeCount listener if not present
   /* istanbul ignore next: no instrumenting injected code */
   await driver.executeScript('PercyDOM.waitForResize()');
-  let height = currentHeight;
-  if (process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT) {
-    height = await driver.executeScript(`return window.outerHeight - window.innerHeight + ${utils.percy?.config?.snapshot?.minHeight}`);
+  let defaultHeight = currentHeight;
+  if (isResponsiveMinHeightEnabled()) {
+    defaultHeight = utils.percy?.config?.snapshot?.minHeight;
   }
-  for (let width of widths) {
+  for (let { width, height } of widthHeights) {
+    height = height || defaultHeight;
     if (lastWindowWidth !== width) {
       resizeCount++;
       await changeWindowDimensionAndWait(driver, width, height, resizeCount);
       lastWindowWidth = width;
     }
 
-    if (process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE) {
+    if (process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE?.toLowerCase() === 'true') {
       await driver.navigate().refresh();
       await driver.executeScript(await utils.fetchPercyDOM());
     }
@@ -89,7 +81,7 @@ async function captureResponsiveDOM(driver, options) {
       await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) * 1000));
     }
 
-    if (process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL) {
+    if (process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL?.toLowerCase() === 'true') {
       await module.exports.slowScrollToBottom(driver);
     }
 
@@ -101,6 +93,69 @@ async function captureResponsiveDOM(driver, options) {
   // Reset window size back to original dimensions
   await changeWindowDimensionAndWait(driver, currentWidth, currentHeight, resizeCount + 1);
   return domSnapshots;
+}
+
+async function captureSerializedDOM(driver, options) {
+  // Fetch the script once at the start of serialization
+  const percyDOMScript = await utils.fetchPercyDOM();
+
+  /* istanbul ignore next */
+  let { domSnapshot } = await driver.executeScript(async (options) => ({
+    /* eslint-disable-next-line no-undef */
+    domSnapshot: await PercyDOM.serialize(options)
+  }), {
+    ...options,
+    ignoreCanvasSerializationErrors: ignoreCanvasSerializationErrors(options),
+    ignoreStyleSheetSerializationErrors: ignoreStyleSheetSerializationErrors(options)
+  });
+
+  try {
+    const currentUrl = new URL(await driver.getCurrentUrl());
+    const iframes = await driver.findElements(By.css('iframe'));
+    const processedFrames = [];
+
+    for (const frame of iframes) {
+      const src = await frame.getAttribute('src');
+      const srcdoc = await frame.getAttribute('srcdoc');
+      if (
+        !src ||
+        srcdoc || // Skip if content is inline (already captured in parent DOM)
+        src === 'about:blank' ||
+        src === 'about:srcdoc' || // Chrome internal for srcdoc iframes
+        src.startsWith('javascript:') ||
+        src.startsWith('data:') ||
+        src.startsWith('vbscript:') ||
+        src.startsWith('blob:') || // Skip generated binary blobs
+        src.startsWith('chrome:') || // Skip browser internal pages
+        src.startsWith('chrome-extension:') // Skip extension-injected frames
+      ) continue;
+
+      try {
+        const frameUrl = new URL(src, currentUrl.href);
+        // Cross-origin check
+        if (frameUrl.origin !== currentUrl.origin) {
+          log.debug(`Processing cross-origin iframe: ${frameUrl.href}`);
+          const result = await processFrame(driver, frame, options, percyDOMScript);
+          if (result) {
+            log.debug(`Successfully captured cross-origin iframe: ${frameUrl.href}`);
+            processedFrames.push(result);
+          } else {
+            log.debug(`Skipped cross-origin iframe (no percyElementId): ${frameUrl.href}`);
+          }
+        }
+      } catch (e) {
+        log.debug(`Skipping iframe "${src}": ${e.message}`);
+      }
+    }
+    if (processedFrames.length > 0) {
+      domSnapshot.corsIframes = processedFrames;
+    }
+  } catch (e) {
+    log.debug(`Error during cross-origin iframe processing: ${e.message}`);
+  }
+  /* istanbul ignore next */
+  domSnapshot.cookies = await driver.manage().getCookies() || [];
+  return domSnapshot;
 }
 
 function ignoreCanvasSerializationErrors(options) {
@@ -115,24 +170,47 @@ function ignoreStyleSheetSerializationErrors(options) {
          false;
 }
 
-async function captureSerializedDOM(driver, options) {
-  /* istanbul ignore next: no instrumenting injected code */
-  let { domSnapshot } = await driver.executeScript(async (options) => ({
-    /* eslint-disable-next-line no-undef */
-    domSnapshot: await PercyDOM.serialize(options)
-  }), {
-    ...options,
-    ignoreCanvasSerializationErrors: ignoreCanvasSerializationErrors(options),
-    ignoreStyleSheetSerializationErrors: ignoreStyleSheetSerializationErrors(options)
-  });
-
-  /* istanbul ignore next: no instrumenting injected code */
-  domSnapshot.cookies = await driver.manage().getCookies() || [];
-  return domSnapshot;
+async function processFrame(driver, frameElement, options, percyDOMScript) {
+  // Read element attributes while still in parent context — these calls will
+  // fail if made after switchTo().frame().
+  const frameURL = await frameElement.getAttribute('src');
+  log.debug(`processFrame: checking iframe src="${frameURL}"`);
+  const percyElementId = await frameElement.getAttribute('data-percy-element-id');
+  log.debug(`processFrame: data-percy-element-id="${percyElementId}" for src="${frameURL}"`);
+  if (!percyElementId) {
+    log.debug(`Skipping frame ${frameURL}: no data-percy-element-id found — ensure PercyDOM.serialize() ran before iframe scanning`);
+    return null;
+  }
+  let iframeSnapshot;
+  try {
+    await driver.switchTo().frame(frameElement);
+    await driver.executeScript(percyDOMScript);
+    /* istanbul ignore next: no instrumenting injected code */
+    iframeSnapshot = await driver.executeScript(async (options) => {
+      /* eslint-disable-next-line no-undef */
+      return await PercyDOM.serialize({ ...options, enableJavaScript: true });
+    }, options);
+  } catch (e) {
+    log.error(`Failed to process cross-origin frame ${frameURL}: ${e.message}`);
+    throw e;
+  } finally {
+    try {
+      await driver.switchTo().defaultContent();
+    } catch (err) {
+      // eslint-disable-next-line no-unsafe-finally
+      throw new Error(`Fatal: could not exit iframe context after processing "${frameURL}". Driver may be unstable. ${err.message}`);
+    }
+  }
+  return {
+    iframeData: { percyElementId },
+    iframeSnapshot,
+    frameUrl: frameURL
+  };
 }
 
 function isResponsiveDOMCaptureValid(options) {
   if (utils.percy?.config?.percy?.deferUploads) {
+    log.error('Responsive capture disabled: deferUploads is true'); // <-- ADD THIS
     return false;
   }
   return (
