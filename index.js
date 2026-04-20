@@ -96,8 +96,31 @@ async function captureResponsiveDOM(driver, options) {
 }
 
 async function captureSerializedDOM(driver, options) {
+  const log = utils.logger('selenium');
   // Fetch the script once at the start of serialization
   const percyDOMScript = await utils.fetchPercyDOM();
+
+  // Readiness gate — runs before serialize when CLI supports it (PER-7348).
+  // Uses executeAsyncScript with a callback signal (robust across selenium-webdriver
+  // versions whose executeScript Promise handling varies). In-browser typeof guard
+  // makes this a no-op on older CLIs that lack waitForReady.
+  let readinessDiagnostics;
+  const readinessConfig = options?.readiness || utils.percy?.config?.snapshot?.readiness || {};
+  if (readinessConfig.preset !== 'disabled') {
+    try {
+      readinessDiagnostics = await driver.executeAsyncScript(function(cfg, done) {
+        try {
+          if (typeof PercyDOM !== 'undefined' && typeof PercyDOM.waitForReady === 'function') {
+            PercyDOM.waitForReady(cfg).then(function(r) { done(r); }).catch(function() { done(); });
+          } else {
+            done();
+          }
+        } catch (e) { done(); }
+      }, readinessConfig);
+    } catch (err) {
+      log.debug(`waitForReady failed, proceeding to serialize: ${err?.message || err}`);
+    }
+  }
 
   /* istanbul ignore next */
   let { domSnapshot } = await driver.executeScript(async (options) => ({
@@ -108,6 +131,11 @@ async function captureSerializedDOM(driver, options) {
     ignoreCanvasSerializationErrors: ignoreCanvasSerializationErrors(options),
     ignoreStyleSheetSerializationErrors: ignoreStyleSheetSerializationErrors(options)
   });
+
+  // Attach readiness diagnostics so the CLI can log timing and pass/fail
+  if (readinessDiagnostics && domSnapshot && typeof domSnapshot === 'object') {
+    domSnapshot.readiness_diagnostics = readinessDiagnostics;
+  }
 
   try {
     const currentUrl = new URL(await driver.getCurrentUrl());

@@ -1581,4 +1581,61 @@ describe('corsIframes population in captureSerializedDOM', () => {
     expect(entry.iframeSnapshot.html).toContain('frame body');
     expect(entry.iframeSnapshot.resources).toContain(frameResource);
   });
+
+  describe('readiness gate (PER-7348)', () => {
+    it('calls executeAsyncScript with waitForReady before serialize', async () => {
+      const asyncSpy = spyOn(driver, 'executeAsyncScript').and.returnValue(
+        Promise.resolve({ ok: true, timed_out: false })
+      );
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'readiness-happy-path');
+
+      expect(asyncSpy).toHaveBeenCalled();
+      const firstCall = asyncSpy.calls.first();
+      expect(firstCall.args[0].toString()).toContain('waitForReady');
+    });
+
+    it('passes per-snapshot readiness config', async () => {
+      const asyncSpy = spyOn(driver, 'executeAsyncScript').and.returnValue(
+        Promise.resolve(null)
+      );
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+      const readiness = { preset: 'strict', stabilityWindowMs: 500 };
+
+      await percySnapshot(driver, 'readiness-config', { readiness });
+
+      const call = asyncSpy.calls.first();
+      expect(call).toBeTruthy();
+      expect(call.args[1]).toEqual(readiness);
+    });
+
+    it('skips executeAsyncScript when preset is disabled', async () => {
+      const asyncSpy = spyOn(driver, 'executeAsyncScript').and.returnValue(Promise.resolve());
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'readiness-disabled', { readiness: { preset: 'disabled' } });
+
+      expect(asyncSpy).not.toHaveBeenCalled();
+    });
+
+    it('still serializes when executeAsyncScript rejects', async () => {
+      spyOn(driver, 'executeAsyncScript').and.returnValue(Promise.reject(new Error('readiness boom')));
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+
+      await percySnapshot(driver, 'readiness-reject');
+
+      expect(helpers.logger.stderr).not.toEqual(jasmine.arrayContaining([
+        '[percy] Could not take DOM snapshot "readiness-reject"'
+      ]));
+    });
+  });
 });
