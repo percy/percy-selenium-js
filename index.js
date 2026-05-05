@@ -221,7 +221,7 @@ function isResponsiveDOMCaptureValid(options) {
   );
 }
 
-async function captureDOM(driver, options = {}) {
+async function captureDOM(driver, options) {
   const responsiveSnapshotCapture = isResponsiveDOMCaptureValid(options);
   if (responsiveSnapshotCapture) {
     return await captureResponsiveDOM(driver, options);
