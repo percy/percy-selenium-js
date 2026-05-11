@@ -16,6 +16,377 @@ const log = utils.logger('selenium-webdriver');
 const CS_MAX_SCREENSHOT_LIMIT = 25000;
 const SCROLL_DEFAULT_SLEEP_TIME = 0.45; // 450ms
 
+// ----------------------------------------------------------------------------
+// Inlined helpers — these mirror percy-nightwatch/lib/snapshot.js. Once
+// @percy/sdk-utils publishes shared versions we can delete these.
+// ----------------------------------------------------------------------------
+const DEFAULT_MAX_FRAME_DEPTH = 5;
+
+function isUnsupportedIframeSrc(src) {
+  if (!src) return true;
+  if (
+    src === 'about:blank' ||
+    src === 'about:srcdoc' ||
+    src.startsWith('about:') ||
+    src.startsWith('javascript:') ||
+    src.startsWith('data:') ||
+    src.startsWith('vbscript:') ||
+    src.startsWith('blob:') ||
+    src.startsWith('chrome:') ||
+    src.startsWith('chrome-extension:')
+  ) return true;
+  return false;
+}
+
+function clampFrameDepth(d) {
+  const n = Number(d);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_MAX_FRAME_DEPTH;
+  if (n > 20) return 20; // safety upper bound
+  return Math.floor(n);
+}
+
+function normalizeIgnoreSelectors(input) {
+  if (!input) return [];
+  if (Array.isArray(input)) return input.filter(s => typeof s === 'string' && s.length);
+  if (typeof input === 'string') return input.length ? [input] : [];
+  return [];
+}
+
+function resolveMaxFrameDepth(options = {}, utilsRef) {
+  return clampFrameDepth(
+    options.maxIframeDepth ??
+    utilsRef?.percy?.config?.snapshot?.maxIframeDepth ??
+    DEFAULT_MAX_FRAME_DEPTH
+  );
+}
+
+function resolveIgnoreSelectors(options = {}, utilsRef) {
+  return normalizeIgnoreSelectors(
+    options.ignoreIframeSelectors ??
+    utilsRef?.percy?.config?.snapshot?.ignoreIframeSelectors ??
+    []
+  );
+}
+
+function getOrigin(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+function shouldSkipIframe(meta, currentOrigin, logger) {
+  if (meta.dataPercyIgnore) {
+    logger?.debug?.(`Skipping iframe marked with data-percy-ignore: ${meta.src || '(no src)'}`);
+    return true;
+  }
+  if (meta.matchesIgnoreSelector) {
+    logger?.debug?.(`Skipping iframe matching ignoreIframeSelectors: ${meta.src || '(no src)'}`);
+    return true;
+  }
+  if (!meta.src || isUnsupportedIframeSrc(meta.src)) {
+    if (meta.src) logger?.debug?.(`Skipping unsupported iframe src: ${meta.src}`);
+    return true;
+  }
+  if (meta.srcdoc) {
+    logger?.debug?.(`Skipping srcdoc iframe at index ${meta.index}`);
+    return true;
+  }
+  const frameOrigin = getOrigin(meta.src);
+  if (!frameOrigin) {
+    logger?.debug?.(`Skipping iframe with invalid URL: ${meta.src}`);
+    return true;
+  }
+  if (frameOrigin === currentOrigin) {
+    logger?.debug?.(`Skipping same-origin iframe: ${meta.src}`);
+    return true;
+  }
+  if (!meta.percyElementId) {
+    logger?.debug?.(`Skipping cross-origin iframe without data-percy-element-id: ${meta.src}`);
+    return true;
+  }
+  return false;
+}
+
+/* eslint-disable no-undef */
+// In-browser script — must be self-contained. Returns metadata for every
+// iframe in the current document. Called both at top-level and inside each
+// frame after switching context.
+function enumerateIframesScript(selectors) {
+  const iframes = document.querySelectorAll('iframe');
+  const result = [];
+  for (let i = 0; i < iframes.length; i++) {
+    const frame = iframes[i];
+    let matchesIgnore = false;
+    if (selectors && selectors.length) {
+      for (let j = 0; j < selectors.length; j++) {
+        try { if (frame.matches(selectors[j])) { matchesIgnore = true; break; } } catch (e) { /* invalid selector — ignore */ }
+      }
+    }
+    result.push({
+      src: frame.src || '',
+      srcdoc: frame.getAttribute('srcdoc'),
+      percyElementId: frame.getAttribute('data-percy-element-id'),
+      dataPercyIgnore: frame.hasAttribute('data-percy-ignore'),
+      matchesIgnoreSelector: matchesIgnore,
+      index: i
+    });
+  }
+  return result;
+}
+/* eslint-enable no-undef */
+
+// Switch into a single iframe (located by its data-percy-element-id) and
+// recursively capture its DOM plus any cross-origin descendants up to
+// maxFrameDepth. Cycle-guarded via ancestorUrls.
+async function processFrameTree(driver, meta, depth, ancestorUrls, ctx) {
+  const { maxFrameDepth, ignoreSelectors, options, percyDOMScript } = ctx;
+
+  if (depth > maxFrameDepth) {
+    log.debug(`Reached max iframe nesting depth (${maxFrameDepth}); stopping at ${meta.src}`);
+    return [];
+  }
+  if (ancestorUrls && ancestorUrls.has(meta.src)) {
+    log.debug(`Skipping cyclic iframe (${meta.src} appears in ancestor chain)`);
+    return [];
+  }
+
+  const collected = [];
+  let switchedIn = false;
+  let capturedError = null;
+
+  try {
+    log.debug(`Processing cross-origin iframe (depth ${depth}): ${meta.src}`);
+
+    const frameElement = await driver.findElement(
+      By.css(`iframe[data-percy-element-id="${meta.percyElementId}"]`)
+    );
+    if (!frameElement) {
+      log.debug(`Could not find iframe with data-percy-element-id="${meta.percyElementId}"`);
+      return [];
+    }
+
+    await driver.switchTo().frame(frameElement);
+    switchedIn = true;
+
+    await driver.executeScript(percyDOMScript);
+
+    // Post-switch URL re-check: when the navigation fails (cross-origin error,
+    // network failure, blocked frame), the iframe's document context lands on
+    // about:blank or about:srcdoc — the element's src attribute can't see this.
+    /* istanbul ignore next: no instrumenting injected code */
+    const frameUrl = await driver.executeScript(function() { return document.URL; });
+    if (frameUrl && isUnsupportedIframeSrc(frameUrl)) {
+      log.debug(`Skipping iframe whose document loaded an unsupported URL: ${frameUrl}`);
+      return [];
+    }
+
+    /* istanbul ignore next: no instrumenting injected code */
+    const iframeSnapshot = await driver.executeScript(async function(opts) {
+      /* eslint-disable-next-line no-undef */
+      return await PercyDOM.serialize(opts);
+    }, { ...options, enableJavaScript: true });
+
+    if (!iframeSnapshot) {
+      log.debug(`Serialization returned empty result for frame: ${meta.src}`);
+      return [];
+    }
+
+    log.debug(`Captured cross-origin iframe (depth ${depth}): ${frameUrl || meta.src}`);
+
+    collected.push({
+      frameUrl: frameUrl || meta.src,
+      iframeData: { percyElementId: meta.percyElementId },
+      iframeSnapshot
+    });
+
+    // Enumerate nested iframes (still inside this frame's context) and recurse.
+    // Compare origins against the IMMEDIATE parent (this frame), not the top page.
+    if (depth < maxFrameDepth) {
+      const currentOrigin = getOrigin(frameUrl || meta.src);
+      const childrenRaw = await driver.executeScript(enumerateIframesScript, ignoreSelectors);
+      const children = Array.isArray(childrenRaw) ? childrenRaw : [];
+      const nextAncestors = new Set(ancestorUrls || []);
+      nextAncestors.add(meta.src);
+      if (frameUrl) nextAncestors.add(frameUrl);
+      for (const child of children) {
+        if (shouldSkipIframe(child, currentOrigin, log)) continue;
+        const nested = await processFrameTree(driver, child, depth + 1, nextAncestors, ctx);
+        if (nested.length) collected.push(...nested);
+      }
+    }
+
+    return collected;
+  } catch (error) {
+    if (error && error.percyContextLost) {
+      if (Array.isArray(error.partialCapture) && error.partialCapture.length) {
+        collected.push(...error.partialCapture);
+      }
+      error.partialCapture = collected;
+      throw error;
+    }
+    log.debug(`Failed to process cross-origin iframe ${meta.src}: ${error.message}`);
+    capturedError = error;
+    return collected;
+  } finally {
+    if (switchedIn) {
+      // Selenium's switchTo() lacks a reliable parentFrame in all drivers, so we
+      // restore to defaultContent at the top level (depth === 1) and signal
+      // percyContextLost at deeper levels so the outer caller can abort sibling
+      // iteration (whose enumeration was performed in a now-lost context).
+      try {
+        if (depth === 1) {
+          await driver.switchTo().defaultContent();
+        } else if (typeof driver.switchTo().parentFrame === 'function') {
+          await driver.switchTo().parentFrame();
+        } else {
+          await driver.switchTo().defaultContent();
+        }
+      } catch (e) {
+        log.debug(`Failed to switch back to parent frame: ${e.message}`);
+        try { await driver.switchTo().defaultContent(); } catch (_) {}
+        if (depth > 1) {
+          const err = new Error(`Lost parent frame context: ${e.message}`);
+          err.percyContextLost = true;
+          err.partialCapture = collected;
+          if (capturedError) err.cause = capturedError;
+          // eslint-disable-next-line no-unsafe-finally
+          throw err;
+        }
+      }
+    }
+  }
+}
+
+async function captureCorsIframes(driver, currentUrl, options, percyDOMScript) {
+  const ignoreSelectors = resolveIgnoreSelectors(options, utils);
+  const maxFrameDepth = resolveMaxFrameDepth(options, utils);
+  const ctx = { maxFrameDepth, ignoreSelectors, options, percyDOMScript };
+
+  try {
+    const metaListRaw = await driver.executeScript(enumerateIframesScript, ignoreSelectors);
+    const metaList = Array.isArray(metaListRaw) ? metaListRaw : [];
+    if (!metaList.length) return [];
+
+    log.debug(`Found ${metaList.length} top-level iframe(s)`);
+
+    const pageOrigin = getOrigin(currentUrl);
+    const corsIframes = [];
+    let skippedCount = 0;
+
+    for (const meta of metaList) {
+      if (shouldSkipIframe(meta, pageOrigin, log)) {
+        skippedCount++;
+        continue;
+      }
+      let entries;
+      try {
+        entries = await processFrameTree(driver, meta, 1, new Set([currentUrl]), ctx);
+      } catch (error) {
+        if (error && error.percyContextLost) {
+          log.debug('Aborting further nested CORS capture due to lost frame context');
+          if (Array.isArray(error.partialCapture) && error.partialCapture.length) {
+            corsIframes.push(...error.partialCapture);
+          }
+          break;
+        }
+        throw error;
+      }
+      if (entries && entries.length) corsIframes.push(...entries);
+    }
+
+    log.debug(`Captured ${corsIframes.length} cross-origin iframe(s) (top-level skipped: ${skippedCount})`);
+    return corsIframes;
+  } catch (error) {
+    log.debug(`Error during cross-origin iframe processing: ${error.message}`);
+    return [];
+  }
+}
+
+// Use CDP to discover closed shadow roots and expose them to PercyDOM.serialize.
+// Closed shadow roots are inaccessible from JS (element.shadowRoot === null), but
+// CDP's DOM domain can pierce them. We resolve each to a JS object handle and
+// store it in window.__percyClosedShadowRoots (a WeakMap keyed by host element).
+async function exposeClosedShadowRoots(driver) {
+  /* istanbul ignore next: CDP path requires selenium-webdriver Chrome driver — covered by mocked tests */
+  if (typeof driver?.sendDevToolsCommand !== 'function') return;
+
+  try {
+    await driver.sendDevToolsCommand('DOM.enable', {});
+
+    const { root } = await driver.sendAndGetDevToolsCommand
+      ? await driver.sendAndGetDevToolsCommand('DOM.getDocument', { depth: -1, pierce: true })
+      : await driver.sendDevToolsCommand('DOM.getDocument', { depth: -1, pierce: true }) || {};
+
+    if (!root) {
+      log.debug('CDP DOM.getDocument returned no root; skipping closed shadow root capture');
+      return;
+    }
+
+    const closedPairs = [];
+    function walk(node) {
+      if (!node) return;
+      // Skip nodes inside child frame documents — cross-frame closed shadow
+      // roots are not yet supported (their execution context lacks the WeakMap).
+      if (node.contentDocument) return;
+      if (node.shadowRoots) {
+        for (const sr of node.shadowRoots) {
+          if (sr.shadowRootType === 'closed') {
+            closedPairs.push({
+              hostBackendNodeId: node.backendNodeId,
+              shadowBackendNodeId: sr.backendNodeId
+            });
+          }
+          walk(sr);
+        }
+      }
+      if (node.children) {
+        for (const c of node.children) walk(c);
+      }
+    }
+    walk(root);
+
+    if (!closedPairs.length) return;
+
+    log.debug(`Found ${closedPairs.length} closed shadow root(s), exposing via CDP`);
+
+    // Create the WeakMap on the page
+    /* istanbul ignore next: browser-executed code */
+    await driver.executeScript(function() {
+      /* eslint-disable-next-line no-undef */
+      window.__percyClosedShadowRoots = window.__percyClosedShadowRoots || new WeakMap();
+    });
+
+    for (const pair of closedPairs) {
+      const hostResp = await (driver.sendAndGetDevToolsCommand
+        ? driver.sendAndGetDevToolsCommand('DOM.resolveNode', { backendNodeId: pair.hostBackendNodeId })
+        : driver.sendDevToolsCommand('DOM.resolveNode', { backendNodeId: pair.hostBackendNodeId }));
+      const shadowResp = await (driver.sendAndGetDevToolsCommand
+        ? driver.sendAndGetDevToolsCommand('DOM.resolveNode', { backendNodeId: pair.shadowBackendNodeId })
+        : driver.sendDevToolsCommand('DOM.resolveNode', { backendNodeId: pair.shadowBackendNodeId }));
+
+      const hostObjectId = hostResp?.object?.objectId;
+      const shadowObjectId = shadowResp?.object?.objectId;
+      if (!hostObjectId || !shadowObjectId) continue;
+
+      const cmd = {
+        functionDeclaration: 'function(shadowRoot) { window.__percyClosedShadowRoots = window.__percyClosedShadowRoots || new WeakMap(); window.__percyClosedShadowRoots.set(this, shadowRoot); }',
+        objectId: hostObjectId,
+        arguments: [{ objectId: shadowObjectId }]
+      };
+      if (driver.sendAndGetDevToolsCommand) {
+        await driver.sendAndGetDevToolsCommand('Runtime.callFunctionOn', cmd);
+      } else {
+        await driver.sendDevToolsCommand('Runtime.callFunctionOn', cmd);
+      }
+    }
+  } catch (err) {
+    // Non-fatal — closed shadow DOM just won't be captured (e.g. non-Chromium)
+    log.debug(`Could not expose closed shadow roots via CDP: ${err.message}`);
+  }
+}
+
 async function changeWindowDimensionAndWait(driver, width, height, resizeCount) {
   try {
     const caps = await driver.getCapabilities();
@@ -75,6 +446,8 @@ async function captureResponsiveDOM(driver, options) {
     if (process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE?.toLowerCase() === 'true') {
       await driver.navigate().refresh();
       await driver.executeScript(await utils.fetchPercyDOM());
+      // Re-prime closed shadow root WeakMap — refresh creates a new execution context
+      await exposeClosedShadowRoots(driver);
     }
 
     if (process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) {
@@ -99,6 +472,10 @@ async function captureSerializedDOM(driver, options) {
   // Fetch the script once at the start of serialization
   const percyDOMScript = await utils.fetchPercyDOM();
 
+  // Expose closed shadow roots via CDP (Chromium only) before serialization so
+  // PercyDOM.serialize can find them in window.__percyClosedShadowRoots.
+  await exposeClosedShadowRoots(driver);
+
   /* istanbul ignore next */
   let { domSnapshot } = await driver.executeScript(async (options) => ({
     /* eslint-disable-next-line no-undef */
@@ -109,46 +486,13 @@ async function captureSerializedDOM(driver, options) {
     ignoreStyleSheetSerializationErrors: ignoreStyleSheetSerializationErrors(options)
   });
 
+  if (!domSnapshot) domSnapshot = {};
+
   try {
-    const currentUrl = new URL(await driver.getCurrentUrl());
-    const iframes = await driver.findElements(By.css('iframe'));
-    const processedFrames = [];
-
-    for (const frame of iframes) {
-      const src = await frame.getAttribute('src');
-      const srcdoc = await frame.getAttribute('srcdoc');
-      if (
-        !src ||
-        srcdoc || // Skip if content is inline (already captured in parent DOM)
-        src === 'about:blank' ||
-        src === 'about:srcdoc' || // Chrome internal for srcdoc iframes
-        src.startsWith('javascript:') ||
-        src.startsWith('data:') ||
-        src.startsWith('vbscript:') ||
-        src.startsWith('blob:') || // Skip generated binary blobs
-        src.startsWith('chrome:') || // Skip browser internal pages
-        src.startsWith('chrome-extension:') // Skip extension-injected frames
-      ) continue;
-
-      try {
-        const frameUrl = new URL(src, currentUrl.href);
-        // Cross-origin check
-        if (frameUrl.origin !== currentUrl.origin) {
-          log.debug(`Processing cross-origin iframe: ${frameUrl.href}`);
-          const result = await processFrame(driver, frame, options, percyDOMScript);
-          if (result) {
-            log.debug(`Successfully captured cross-origin iframe: ${frameUrl.href}`);
-            processedFrames.push(result);
-          } else {
-            log.debug(`Skipped cross-origin iframe (no percyElementId): ${frameUrl.href}`);
-          }
-        }
-      } catch (e) {
-        log.debug(`Skipping iframe "${src}": ${e.message}`);
-      }
-    }
-    if (processedFrames.length > 0) {
-      domSnapshot.corsIframes = processedFrames;
+    const currentUrl = await driver.getCurrentUrl();
+    const corsIframes = await captureCorsIframes(driver, currentUrl, options || {}, percyDOMScript);
+    if (corsIframes.length > 0) {
+      domSnapshot.corsIframes = corsIframes;
     }
   } catch (e) {
     log.debug(`Error during cross-origin iframe processing: ${e.message}`);
@@ -168,44 +512,6 @@ function ignoreStyleSheetSerializationErrors(options) {
   return options?.ignoreStyleSheetSerializationErrors ??
          utils.percy?.config?.snapshot?.ignoreStyleSheetSerializationErrors ??
          false;
-}
-
-async function processFrame(driver, frameElement, options, percyDOMScript) {
-  // Read element attributes while still in parent context — these calls will
-  // fail if made after switchTo().frame().
-  const frameURL = await frameElement.getAttribute('src');
-  log.debug(`processFrame: checking iframe src="${frameURL}"`);
-  const percyElementId = await frameElement.getAttribute('data-percy-element-id');
-  log.debug(`processFrame: data-percy-element-id="${percyElementId}" for src="${frameURL}"`);
-  if (!percyElementId) {
-    log.debug(`Skipping frame ${frameURL}: no data-percy-element-id found — ensure PercyDOM.serialize() ran before iframe scanning`);
-    return null;
-  }
-  let iframeSnapshot;
-  try {
-    await driver.switchTo().frame(frameElement);
-    await driver.executeScript(percyDOMScript);
-    /* istanbul ignore next: no instrumenting injected code */
-    iframeSnapshot = await driver.executeScript(async (options) => {
-      /* eslint-disable-next-line no-undef */
-      return await PercyDOM.serialize({ ...options, enableJavaScript: true });
-    }, options);
-  } catch (e) {
-    log.error(`Failed to process cross-origin frame ${frameURL}: ${e.message}`);
-    throw e;
-  } finally {
-    try {
-      await driver.switchTo().defaultContent();
-    } catch (err) {
-      // eslint-disable-next-line no-unsafe-finally
-      throw new Error(`Fatal: could not exit iframe context after processing "${frameURL}". Driver may be unstable. ${err.message}`);
-    }
-  }
-  return {
-    iframeData: { percyElementId },
-    iframeSnapshot,
-    frameUrl: frameURL
-  };
 }
 
 function isResponsiveDOMCaptureValid(options) {
@@ -446,4 +752,20 @@ module.exports.slowScrollToBottom = async (driver, scrollSleep = SCROLL_DEFAULT_
     sleepAfterScroll = parseFloat(process.env.PERCY_SLEEP_AFTER_LAZY_LOAD_COMPLETE);
   }
   await new Promise(resolve => setTimeout(resolve, sleepAfterScroll * 1000));
+};
+
+// Internal helpers exported for testing
+module.exports._internals = {
+  isUnsupportedIframeSrc,
+  clampFrameDepth,
+  normalizeIgnoreSelectors,
+  resolveMaxFrameDepth,
+  resolveIgnoreSelectors,
+  getOrigin,
+  shouldSkipIframe,
+  enumerateIframesScript,
+  processFrameTree,
+  captureCorsIframes,
+  exposeClosedShadowRoots,
+  DEFAULT_MAX_FRAME_DEPTH
 };

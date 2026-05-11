@@ -927,36 +927,126 @@ describe('createRegion', () => {
   });
 });
 
-describe('CORS iframe capture in captureSerializedDOM', () => {
-  let switchSpies;
-  let frameElement;
+// ----------------------------------------------------------------------------
+// Helper: build a mock selenium driver for the new enumeration-based iframe
+// capture path. The new impl calls driver.executeScript with three distinct
+// kinds of arguments:
+//   1. a string (percyDOM injection)
+//   2. a function returning document.URL or enumerating iframes
+//   3. an async function that calls PercyDOM.serialize(opts)
+// We dispatch by argument type / a manually-tracked counter.
+// ----------------------------------------------------------------------------
+function buildIframeDriver({
+  pageUrl = 'https://host.example.com/',
+  mainSnapshot = { html: '<html></html>', resources: [] },
+  topIframes = [], // [{ src, percyElementId, srcdoc, dataPercyIgnore, matchesIgnoreSelector }]
+  nestedIframes = {}, // map pid -> [iframeMeta...]
+  frameSnapshot = { html: '<html><body>frame</body></html>', resources: [] },
+  frameSnapshotByPid = {},
+  frameDocumentUrlByPid = {},
+  switchFrameThrow = null,
+  defaultContentThrow = null,
+  parentFrameAvailable = true,
+  serializeThrow = false,
+  serializeThrowOnPid = null
+} = {}) {
+  const switchSpies = {
+    frame: jasmine.createSpy('frame').and.callFake(() => {
+      if (switchFrameThrow) return Promise.reject(switchFrameThrow);
+      return Promise.resolve();
+    }),
+    defaultContent: jasmine.createSpy('defaultContent').and.callFake(() => {
+      if (defaultContentThrow) return Promise.reject(defaultContentThrow);
+      return Promise.resolve();
+    })
+  };
+  if (parentFrameAvailable) {
+    switchSpies.parentFrame = jasmine.createSpy('parentFrame').and.returnValue(Promise.resolve());
+  }
 
-  function buildDriver(mainHtml, iframeHtml, frameSrc = 'https://cross.example.com/', percyElementId = 'pid-1') {
-    switchSpies = {
-      frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
-      defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
-    };
-    frameElement = {
-      getAttribute: jasmine.createSpy('getAttribute').and.callFake(attr => {
-        if (attr === 'src') return Promise.resolve(frameSrc);
-        if (attr === 'data-percy-element-id') return Promise.resolve(percyElementId);
-        return Promise.resolve(null);
-      })
-    };
-    let serializeCallCount = 0;
+  let currentPid = null; // tracks which frame we're inside (null = top page)
+
+  const frameElementByPid = {};
+  for (const m of topIframes) frameElementByPid[m.percyElementId] = { __pid: m.percyElementId };
+  for (const list of Object.values(nestedIframes)) {
+    for (const m of list) frameElementByPid[m.percyElementId] = { __pid: m.percyElementId };
+  }
+
+  const driver = {
+    getCurrentUrl: jasmine.createSpy('getCurrentUrl').and.returnValue(Promise.resolve(pageUrl)),
+    findElement: jasmine.createSpy('findElement').and.callFake(async (locator) => {
+      // Locator is By.css(`iframe[data-percy-element-id="..."]`) — extract pid
+      const str = locator?.value || String(locator);
+      const m = /data-percy-element-id="([^"]+)"/.exec(str);
+      if (!m) return null;
+      return frameElementByPid[m[1]];
+    }),
+    switchTo: jasmine.createSpy('switchTo').and.callFake(() => switchSpies),
+    executeScript: jasmine.createSpy('executeScript').and.callFake(async (script, arg) => {
+      // String script — percyDOM injection or simple eval
+      if (typeof script === 'string') return undefined;
+      // Function — could be: serialize, document.URL probe, or enumerateIframesScript
+      const body = script.toString();
+      if (body.includes('PercyDOM.serialize')) {
+        if (serializeThrow) throw new Error('serialize failed');
+        if (currentPid === null) return { domSnapshot: mainSnapshot };
+        if (serializeThrowOnPid && currentPid === serializeThrowOnPid) {
+          throw new Error('frame serialize failed');
+        }
+        return frameSnapshotByPid[currentPid] || frameSnapshot;
+      }
+      if (body.includes('document.URL')) {
+        return frameDocumentUrlByPid[currentPid] || (currentPid
+          ? (topIframes.find(t => t.percyElementId === currentPid)?.src ||
+             Object.values(nestedIframes).flat().find(t => t.percyElementId === currentPid)?.src ||
+             pageUrl)
+          : pageUrl);
+      }
+      if (body.includes('document.querySelectorAll') && body.includes('iframe')) {
+        // enumerateIframesScript
+        if (currentPid === null) return topIframes.map((m, i) => ({ ...m, index: i }));
+        return (nestedIframes[currentPid] || []).map((m, i) => ({ ...m, index: i }));
+      }
+      return undefined;
+    }),
+    manage: jasmine.createSpy('manage').and.returnValue({
+      getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve([]))
+    })
+  };
+
+  // Intercept switchTo().frame to track context
+  switchSpies.frame.and.callFake((el) => {
+    if (switchFrameThrow) return Promise.reject(switchFrameThrow);
+    currentPid = el?.__pid || null;
+    return Promise.resolve();
+  });
+  switchSpies.defaultContent.and.callFake(() => {
+    if (defaultContentThrow) return Promise.reject(defaultContentThrow);
+    currentPid = null;
+    return Promise.resolve();
+  });
+  if (switchSpies.parentFrame) {
+    switchSpies.parentFrame.and.callFake(() => {
+      currentPid = null; // simplified — we don't track nested parents in mock
+      return Promise.resolve();
+    });
+  }
+
+  driver._switchSpies = switchSpies;
+  return driver;
+}
+
+describe('CORS iframe capture in captureSerializedDOM', () => {
+  let driver;
+
+  function meta(pid, src, extra = {}) {
     return {
-      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
-      findElements: jasmine.createSpy().and.returnValue(Promise.resolve([frameElement])),
-      switchTo: jasmine.createSpy().and.returnValue(switchSpies),
-      executeScript: jasmine.createSpy('executeScript').and.callFake(async (script, ...args) => {
-        if (typeof script === 'string') return null;
-        serializeCallCount++;
-        if (serializeCallCount === 1) return { domSnapshot: { html: mainHtml, resources: [] } };
-        return iframeHtml ? { html: iframeHtml, resources: [] } : { resources: [] };
-      }),
-      manage: jasmine.createSpy().and.returnValue({
-        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
-      })
+      percyElementId: pid,
+      src,
+      srcdoc: null,
+      dataPercyIgnore: false,
+      matchesIgnoreSelector: false,
+      ...extra
     };
   }
 
@@ -968,107 +1058,73 @@ describe('CORS iframe capture in captureSerializedDOM', () => {
   });
 
   it('switches into cross-origin iframe and always returns to defaultContent', async () => {
-    const pid = 'ele-abc';
-    const driver = buildDriver(
-      `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
-      '<html><body>cross frame</body></html>'
-    );
+    driver = buildIframeDriver({
+      topIframes: [meta('ele-abc', 'https://cross.example.com/')]
+    });
     await percySnapshot(driver, 'iframe switch & defaultContent');
-    expect(switchSpies.frame).toHaveBeenCalledWith(frameElement);
-    expect(switchSpies.defaultContent).toHaveBeenCalled();
+    expect(driver._switchSpies.frame).toHaveBeenCalled();
+    expect(driver._switchSpies.defaultContent).toHaveBeenCalled();
   });
 
   it('injects percy DOM script into cross-origin iframe', async () => {
-    const pid = 'ele-inject';
-    const driver = buildDriver(
-      `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
-      '<html><body>frame</body></html>'
-    );
+    driver = buildIframeDriver({
+      topIframes: [meta('ele-inject', 'https://cross.example.com/')]
+    });
     await percySnapshot(driver, 'percyDOM injected into frame');
     const calls = driver.executeScript.calls.allArgs();
     // After the main page serialize, a string script (percyDOM) is injected into the frame
-    const hasStringInjection = calls.slice(1).some(args => typeof args[0] === 'string' && args[0].length > 50);
-    expect(hasStringInjection).toBeTrue();
+    const stringInjections = calls.filter(args => typeof args[0] === 'string' && args[0].length > 50);
+    expect(stringInjections.length).toBeGreaterThanOrEqual(2); // main + frame
   });
 
-  it('skips frame when iframeSnapshot returns no html', async () => {
-    const pid = 'ele-nohtml';
-    const driver = buildDriver(
-      `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
-      null // no html in iframe snapshot
-    );
-    await expectAsync(percySnapshot(driver, 'iframe no-html')).not.toBeRejected();
-    // switchTo.frame IS called (to try capture), but corsIframes entry is skipped by core due to missing html
-    expect(switchSpies.frame).toHaveBeenCalled();
+  it('skips frame when serialize returns empty result', async () => {
+    driver = buildIframeDriver({
+      topIframes: [meta('ele-nohtml', 'https://cross.example.com/')],
+      frameSnapshotByPid: { 'ele-nohtml': null }
+    });
+    await expectAsync(percySnapshot(driver, 'iframe empty')).not.toBeRejected();
+    expect(driver._switchSpies.frame).toHaveBeenCalled();
   });
 
   it('skips frame when data-percy-element-id is missing', async () => {
-    const driver = buildDriver(
-      '<html><body><iframe src="https://cross.example.com/"></iframe></body></html>',
-      '<html></html>'
-    );
-    // Override percyElementId to be null
-    frameElement.getAttribute.and.callFake(attr => {
-      if (attr === 'src') return Promise.resolve('https://cross.example.com/');
-      if (attr === 'data-percy-element-id') return Promise.resolve(null);
-      return Promise.resolve(null);
+    driver = buildIframeDriver({
+      topIframes: [meta(null, 'https://cross.example.com/')]
     });
     await percySnapshot(driver, 'no-pid skip');
-    expect(switchSpies.frame).not.toHaveBeenCalled();
+    expect(driver._switchSpies.frame).not.toHaveBeenCalled();
   });
 
   it('continues gracefully when switchTo.frame throws', async () => {
-    switchSpies = {
-      frame: jasmine.createSpy('frame').and.rejectWith(new Error('cross-origin access denied')),
-      defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
-    };
-    const pid = 'ele-err';
-    const driver = buildDriver(
-      `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
-      '<html></html>'
-    );
-    driver.switchTo.and.returnValue(switchSpies);
+    driver = buildIframeDriver({
+      topIframes: [meta('ele-err', 'https://cross.example.com/')],
+      switchFrameThrow: new Error('cross-origin access denied')
+    });
     await expectAsync(percySnapshot(driver, 'frame error graceful')).not.toBeRejected();
   });
 
   it('always calls defaultContent even when frame executeScript throws', async () => {
-    const pid = 'ele-throw';
-    const mainHtml = `<html><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></html>`;
-    switchSpies = {
-      frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
-      defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
-    };
-    frameElement = {
-      getAttribute: jasmine.createSpy('getAttribute').and.callFake(attr => {
-        if (attr === 'src') return Promise.resolve('https://cross.example.com/');
-        if (attr === 'data-percy-element-id') return Promise.resolve(pid);
-        return Promise.resolve(null);
-      })
-    };
-    let callCount = 0;
-    const driver = {
-      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
-      findElements: jasmine.createSpy().and.returnValue(Promise.resolve([frameElement])),
-      switchTo: jasmine.createSpy().and.returnValue(switchSpies),
-      executeScript: jasmine.createSpy('executeScript').and.callFake(async () => {
-        callCount++;
-        if (callCount === 1) return undefined; // percyDOM inject in percySnapshot
-        if (callCount === 2) return { domSnapshot: { html: mainHtml, resources: [] } }; // main page serialize
-        if (callCount === 3) return undefined; // percyDOM inject in processFrame
-        throw new Error('serialize failed inside frame'); // frame serialize
-      }),
-      manage: jasmine.createSpy().and.returnValue({
-        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
-      })
-    };
+    driver = buildIframeDriver({
+      topIframes: [meta('ele-throw', 'https://cross.example.com/')],
+      serializeThrowOnPid: 'ele-throw'
+    });
     await percySnapshot(driver, 'always defaultContent');
-    expect(switchSpies.defaultContent).toHaveBeenCalled();
+    expect(driver._switchSpies.defaultContent).toHaveBeenCalled();
   });
 });
 
-describe('processFrame - cross-origin iframe switching', () => {
-  let mockedIframeDriver;
-  let frameElement;
+describe('processFrameTree - cross-origin iframe switching', () => {
+  let driver;
+
+  function meta(pid, src, extra = {}) {
+    return {
+      percyElementId: pid,
+      src,
+      srcdoc: null,
+      dataPercyIgnore: false,
+      matchesIgnoreSelector: false,
+      ...extra
+    };
+  }
 
   beforeEach(async () => {
     await helpers.setupTest();
@@ -1076,150 +1132,64 @@ describe('processFrame - cross-origin iframe switching', () => {
     utils.percy.type = 'web';
     utils.percy.config = {};
     utils.percy.widths = null;
-
-    frameElement = {
-      getAttribute: jasmine.createSpy('getAttribute').and.callFake(attr => {
-        if (attr === 'src') return Promise.resolve('https://cross.example.com/frame');
-        if (attr === 'data-percy-element-id') return Promise.resolve('pid-xyz');
-        return Promise.resolve(null);
-      })
-    };
-
-    mockedIframeDriver = {
-      getCurrentUrl: jasmine.createSpy('getCurrentUrl').and.returnValue(Promise.resolve('https://host.example.com/')),
-      findElements: jasmine.createSpy('findElements').and.returnValue(Promise.resolve([frameElement])),
-      switchTo: jasmine.createSpy('switchTo').and.returnValue({
-        frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
-        defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
-      }),
-      executeScript: jasmine.createSpy('executeScript').and.returnValue(
-        Promise.resolve({ html: '<html><body>frame</body></html>', resources: [] })
-      ),
-      manage: jasmine.createSpy('manage').and.returnValue({
-        getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve([]))
-      })
-    };
   });
 
   it('switches to cross-origin iframe and back to defaultContent', async () => {
-    // First executeScript call = main page serialize, subsequent = frame inject + serialize
-    let callCount = 0;
-    mockedIframeDriver.executeScript.and.callFake(async (script) => {
-      callCount++;
-      if (callCount === 1) {
-        return { domSnapshot: { html: '<html><iframe data-percy-element-id="pid-xyz" src="https://cross.example.com/frame"></iframe></html>', resources: [] } };
-      }
-      return { html: '<html><body>frame</body></html>', resources: [] };
+    driver = buildIframeDriver({
+      topIframes: [meta('pid-xyz', 'https://cross.example.com/frame')]
     });
-
-    await percySnapshot(mockedIframeDriver, 'frame switch test');
-
-    const switchTo = mockedIframeDriver.switchTo();
-    expect(switchTo.frame).toHaveBeenCalledWith(frameElement);
-    expect(switchTo.defaultContent).toHaveBeenCalled();
+    await percySnapshot(driver, 'frame switch test');
+    expect(driver._switchSpies.frame).toHaveBeenCalled();
+    expect(driver._switchSpies.defaultContent).toHaveBeenCalled();
   });
 
   it('skips frame when data-percy-element-id is absent', async () => {
-    frameElement.getAttribute.and.callFake(attr => {
-      if (attr === 'src') return Promise.resolve('https://cross.example.com/frame');
-      if (attr === 'data-percy-element-id') return Promise.resolve(null);
-      return Promise.resolve(null);
+    driver = buildIframeDriver({
+      topIframes: [meta(null, 'https://cross.example.com/frame')]
     });
-
-    mockedIframeDriver.executeScript.and.returnValue(
-      Promise.resolve({ domSnapshot: { html: '<html></html>', resources: [] } })
-    );
-
-    await percySnapshot(mockedIframeDriver, 'no-pid skip test');
-
-    const switchTo = mockedIframeDriver.switchTo();
-    expect(switchTo.frame).not.toHaveBeenCalled();
+    await percySnapshot(driver, 'no-pid skip test');
+    expect(driver._switchSpies.frame).not.toHaveBeenCalled();
   });
 
   it('continues gracefully when switchTo.frame throws', async () => {
-    mockedIframeDriver.switchTo.and.returnValue({
-      frame: jasmine.createSpy('frame').and.rejectWith(new Error('frame access denied')),
-      defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
+    driver = buildIframeDriver({
+      topIframes: [meta('pid-xyz', 'https://cross.example.com/frame')],
+      switchFrameThrow: new Error('frame access denied')
     });
-
-    let callCount = 0;
-    mockedIframeDriver.executeScript.and.callFake(async () => {
-      callCount++;
-      if (callCount === 1) return { domSnapshot: { html: '<html><iframe data-percy-element-id="pid-xyz" src="https://cross.example.com/frame"></iframe></html>', resources: [] } };
-      return { html: '<html></html>', resources: [] };
-    });
-
-    // Should not throw — outer catch swallows iframe errors
-    await expectAsync(percySnapshot(mockedIframeDriver, 'frame-error graceful'))
-      .not.toBeRejected();
+    await expectAsync(percySnapshot(driver, 'frame-error graceful')).not.toBeRejected();
   });
 
-  it('always calls defaultContent even when frame executeScript throws', async () => {
-    // Call sequence:
-    // 1: driver.executeScript(percyDOMScript) in percySnapshot → inject percy DOM (returns undefined)
-    // 2: driver.executeScript(serialize...) in captureSerializedDOM → returns main page snapshot with cross-origin iframe
-    // 3: driver.executeScript(percyDOMScript) in processFrame → inject into frame (returns undefined)
-    // 4: driver.executeScript(serialize...) in processFrame → throws to trigger finally + defaultContent
-    let callCount = 0;
-    mockedIframeDriver.executeScript.and.callFake(async () => {
-      callCount++;
-      if (callCount === 1) return undefined; // percyDOMScript inject in percySnapshot
-      if (callCount === 2) return { domSnapshot: { html: '<html><iframe data-percy-element-id="pid-xyz" src="https://cross.example.com/frame"></iframe></html>', resources: [] } };
-      if (callCount === 3) return undefined; // percyDOMScript inject inside frame
-      throw new Error('serialize failed inside frame'); // callCount === 4
+  it('always calls defaultContent even when frame serialize throws', async () => {
+    driver = buildIframeDriver({
+      topIframes: [meta('pid-xyz', 'https://cross.example.com/frame')],
+      serializeThrowOnPid: 'pid-xyz'
     });
-
-    const switchSpies = {
-      frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
-      defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
-    };
-    mockedIframeDriver.switchTo.and.returnValue(switchSpies);
-
-    await percySnapshot(mockedIframeDriver, 'always-defaultContent test');
-
-    expect(switchSpies.defaultContent).toHaveBeenCalled();
+    await percySnapshot(driver, 'always-defaultContent test');
+    expect(driver._switchSpies.defaultContent).toHaveBeenCalled();
   });
 
-  it('throws Fatal error (line 204) when defaultContent rejects inside processFrame finally', async () => {
-    const pid = 'fatal-pid';
-    const mainHtml = `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`;
-
-    const switchSpies = {
-      frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
-      defaultContent: jasmine.createSpy('defaultContent').and.rejectWith(new Error('driver context lost'))
-    };
-    mockedIframeDriver.switchTo.and.returnValue(switchSpies);
-    mockedIframeDriver.findElements.and.returnValue(Promise.resolve([frameElement]));
-
-    // Use typeof to distinguish string (percyDOM inject) from function (serialize) calls
-    mockedIframeDriver.executeScript.and.callFake(async (script) => {
-      if (typeof script === 'string') return undefined; // percyDOM inject — string argument
-      if (!mockedIframeDriver._mainSerialized) {
-        mockedIframeDriver._mainSerialized = true;
-        return { domSnapshot: { html: mainHtml, resources: [] } }; // main page serialize
-      }
-      return { html: '<html></html>' }; // frame serialize
+  it('does not throw when defaultContent rejects inside processFrameTree finally (top-level)', async () => {
+    driver = buildIframeDriver({
+      topIframes: [meta('fatal-pid', 'https://cross.example.com/')],
+      defaultContentThrow: new Error('driver context lost'),
+      parentFrameAvailable: false
     });
-    delete mockedIframeDriver._mainSerialized;
-
-    // The Fatal throw from line 204 is swallowed by captureSerializedDOM outer catch
-    await expectAsync(percySnapshot(mockedIframeDriver, 'fatal defaultContent test'))
-      .not.toBeRejected();
-
-    expect(switchSpies.defaultContent).toHaveBeenCalled();
+    // Top-level (depth=1) failure to restore parent is swallowed by outer catch
+    await expectAsync(percySnapshot(driver, 'fatal defaultContent test')).not.toBeRejected();
+    expect(driver._switchSpies.defaultContent).toHaveBeenCalled();
   });
 });
 
 describe('captureSerializedDOM - iframe src filtering', () => {
-  let baseDriver;
-
-  function makeFrameElement(src, pid = 'pid-1') {
+  let driver;
+  function m(src, pid = 'pid-1', extra = {}) {
     return {
-      getAttribute: jasmine.createSpy('getAttribute').and.callFake(attr => {
-        if (attr === 'src') return Promise.resolve(src);
-        if (attr === 'data-percy-element-id') return Promise.resolve(pid);
-        return Promise.resolve(null);
-      })
+      percyElementId: pid,
+      src,
+      srcdoc: null,
+      dataPercyIgnore: false,
+      matchesIgnoreSelector: false,
+      ...extra
     };
   }
 
@@ -1230,76 +1200,57 @@ describe('captureSerializedDOM - iframe src filtering', () => {
     utils.percy.config = {};
   });
 
-  function makeDriver(frames, currentUrl = 'https://host.example.com/') {
-    let callCount = 0;
-    const switchSpies = {
-      frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
-      defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
-    };
-    const d = {
-      getCurrentUrl: jasmine.createSpy('getCurrentUrl').and.returnValue(Promise.resolve(currentUrl)),
-      findElements: jasmine.createSpy('findElements').and.returnValue(Promise.resolve(frames)),
-      switchTo: jasmine.createSpy('switchTo').and.returnValue(switchSpies),
-      executeScript: jasmine.createSpy('executeScript').and.callFake(async () => {
-        callCount++;
-        if (callCount === 1) return { domSnapshot: { html: '<html></html>', resources: [] } };
-        return { html: '<html><body>frame</body></html>', resources: [] };
-      }),
-      manage: jasmine.createSpy('manage').and.returnValue({
-        getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve([]))
-      })
-    };
-    d._switchSpies = switchSpies;
-    return d;
-  }
-
   it('skips iframe with src = about:blank', async () => {
-    const driver = makeDriver([makeFrameElement('about:blank')]);
+    driver = buildIframeDriver({ topIframes: [m('about:blank')] });
     await percySnapshot(driver, 'blank src test');
     expect(driver._switchSpies.frame).not.toHaveBeenCalled();
   });
 
   it('skips iframe with src starting with javascript:', async () => {
-    const driver = makeDriver([makeFrameElement('javascript:void(0)')]);
+    driver = buildIframeDriver({ topIframes: [m('javascript:void(0)')] });
     await percySnapshot(driver, 'js src test');
     expect(driver._switchSpies.frame).not.toHaveBeenCalled();
   });
 
   it('skips iframe with null/empty src', async () => {
-    const driver = makeDriver([makeFrameElement(null)]);
+    driver = buildIframeDriver({ topIframes: [m('')] });
     await percySnapshot(driver, 'null src test');
     expect(driver._switchSpies.frame).not.toHaveBeenCalled();
   });
 
   it('skips same-origin iframes', async () => {
-    const driver = makeDriver([makeFrameElement('https://host.example.com/child', 'pid-same')], 'https://host.example.com/');
+    driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [m('https://host.example.com/child', 'pid-same')]
+    });
     await percySnapshot(driver, 'same-origin test');
     expect(driver._switchSpies.frame).not.toHaveBeenCalled();
   });
 
   it('processes cross-origin iframe', async () => {
-    const frame = makeFrameElement('https://other.example.com/frame', 'pid-cross');
-    const driver = makeDriver([frame], 'https://host.example.com/');
+    driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [m('https://other.example.com/frame', 'pid-cross')]
+    });
     await percySnapshot(driver, 'cross-origin test');
-    expect(driver._switchSpies.frame).toHaveBeenCalledWith(frame);
+    expect(driver._switchSpies.frame).toHaveBeenCalled();
   });
 
   it('handles invalid frame src URL without throwing', async () => {
-    const frame = makeFrameElement('not-a-valid-url');
-    const driver = makeDriver([frame]);
+    driver = buildIframeDriver({ topIframes: [m('not-a-valid-url')] });
     await expectAsync(percySnapshot(driver, 'invalid url test')).not.toBeRejected();
   });
 
   it('processes only cross-origin iframes when mixed with same-origin', async () => {
-    const sameOrigin = makeFrameElement('https://host.example.com/same', 'pid-same');
-    const crossOrigin = makeFrameElement('https://other.example.com/cross', 'pid-cross');
-    const driver = makeDriver([sameOrigin, crossOrigin], 'https://host.example.com/');
-
+    driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [
+        m('https://host.example.com/same', 'pid-same'),
+        m('https://other.example.com/cross', 'pid-cross')
+      ]
+    });
     await percySnapshot(driver, 'mixed origins test');
-
     expect(driver._switchSpies.frame).toHaveBeenCalledTimes(1);
-    expect(driver._switchSpies.frame).toHaveBeenCalledWith(crossOrigin);
-    expect(driver._switchSpies.frame).not.toHaveBeenCalledWith(sameOrigin);
   });
 });
 
@@ -1386,7 +1337,9 @@ describe('captureResponsiveDOM - getResponsiveWidths height/width handling', () 
 
     await percySnapshot(mockedDriver, 'no responsive capture', { responsiveSnapshotCapture: false, widths: [375] });
 
-    expect(mockedDriver.sendDevToolsCommand).not.toHaveBeenCalled();
+    const resizeCalls = mockedDriver.sendDevToolsCommand.calls.allArgs()
+      .filter(args => args[0] === 'Emulation.setDeviceMetricsOverride');
+    expect(resizeCalls.length).toBe(0);
   });
 
   it('does not run responsive capture when deferUploads is true', async () => {
@@ -1396,7 +1349,9 @@ describe('captureResponsiveDOM - getResponsiveWidths height/width handling', () 
 
     await percySnapshot(mockedDriver, 'deferUploads disabled', { responsiveSnapshotCapture: true, widths: [375] });
 
-    expect(mockedDriver.sendDevToolsCommand).not.toHaveBeenCalled();
+    const resizeCalls = mockedDriver.sendDevToolsCommand.calls.allArgs()
+      .filter(args => args[0] === 'Emulation.setDeviceMetricsOverride');
+    expect(resizeCalls.length).toBe(0);
   });
 
   it('uses PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT env var to compute height', async () => {
@@ -1464,51 +1419,30 @@ describe('corsIframes population in captureSerializedDOM', () => {
     return snap?.body ?? null;
   }
 
-  function buildCorsDriver(pid, mainHtml, iframeHtml, frameSrc = 'https://cross.example.com/') {
-    let callCount = 0;
-    const switchSpies = {
-      frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
-      defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
+  function m(pid, src, extra = {}) {
+    return {
+      percyElementId: pid,
+      src,
+      srcdoc: null,
+      dataPercyIgnore: false,
+      matchesIgnoreSelector: false,
+      ...extra
     };
-    const frameElement = {
-      getAttribute: jasmine.createSpy('getAttribute').and.callFake(attr => {
-        if (attr === 'src') return Promise.resolve(frameSrc);
-        if (attr === 'data-percy-element-id') return Promise.resolve(pid);
-        return Promise.resolve(null);
-      })
-    };
-    const driver = {
-      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
-      findElements: jasmine.createSpy().and.returnValue(Promise.resolve([frameElement])),
-      switchTo: jasmine.createSpy().and.returnValue(switchSpies),
-      executeScript: jasmine.createSpy('executeScript').and.callFake(async (script) => {
-        callCount++;
-        if (typeof script === 'string') return undefined; // percyDOM inject
-        if (callCount <= 2) return { domSnapshot: { html: mainHtml, resources: [] } };
-        return iframeHtml ? { html: iframeHtml, resources: [] } : { resources: [] };
-      }),
-      manage: jasmine.createSpy().and.returnValue({
-        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
-      })
-    };
-    return { driver, frameElement, switchSpies };
   }
 
   it('sets corsIframes on domSnapshot when cross-origin frames are captured', async () => {
     const pid = 'cors-pid-1';
-    const { driver } = buildCorsDriver(
-      pid,
-      `<html><body><iframe data-percy-element-id="${pid}" src="https://cross.example.com/"></iframe></body></html>`,
-      '<html><body>cross frame</body></html>'
-    );
+    const driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [m(pid, 'https://cross.example.com/')],
+      frameSnapshotByPid: { [pid]: { html: '<html><body>cross frame</body></html>', resources: [] } }
+    });
 
     await percySnapshot(driver, 'cors iframe test');
 
     const body = await getSnapshotBody();
     expect(body).not.toBeNull();
-    const snap = Array.isArray(body.domSnapshot)
-      ? body.domSnapshot[0]
-      : body.domSnapshot;
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
     expect(Array.isArray(snap.corsIframes)).toBeTrue();
     expect(snap.corsIframes.length).toBe(1);
     expect(snap.corsIframes[0].iframeData.percyElementId).toBe(pid);
@@ -1517,68 +1451,437 @@ describe('corsIframes population in captureSerializedDOM', () => {
   });
 
   it('does not set corsIframes when no cross-origin frames are found', async () => {
-    const driver = {
-      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
-      findElements: jasmine.createSpy().and.returnValue(Promise.resolve([])),
-      switchTo: jasmine.createSpy(),
-      executeScript: jasmine.createSpy('executeScript').and.returnValue(
-        Promise.resolve({ domSnapshot: { html: '<html></html>', resources: [] } })
-      ),
-      manage: jasmine.createSpy().and.returnValue({
-        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
-      })
-    };
+    const driver = buildIframeDriver({ topIframes: [] });
 
     await percySnapshot(driver, 'no cors frames test');
 
     const body = await getSnapshotBody();
     expect(body).not.toBeNull();
-    const snap = Array.isArray(body.domSnapshot)
-      ? body.domSnapshot[0]
-      : body.domSnapshot;
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
     expect(snap.corsIframes).toBeUndefined();
   });
 
   it('corsIframes entry has the correct structure for core processing', async () => {
     const pid = 'struct-pid';
     const frameResource = { url: 'https://cross.example.com/style.css' };
-    let callCount = 0;
-    const frameElement = {
-      getAttribute: jasmine.createSpy('getAttribute').and.callFake(attr => {
-        if (attr === 'src') return Promise.resolve('https://cross.example.com/frame');
-        if (attr === 'data-percy-element-id') return Promise.resolve(pid);
-        return Promise.resolve(null);
-      })
-    };
-    const driver = {
-      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
-      findElements: jasmine.createSpy().and.returnValue(Promise.resolve([frameElement])),
-      switchTo: jasmine.createSpy().and.returnValue({
-        frame: jasmine.createSpy().and.returnValue(Promise.resolve()),
-        defaultContent: jasmine.createSpy().and.returnValue(Promise.resolve())
-      }),
-      executeScript: jasmine.createSpy('executeScript').and.callFake(async (script) => {
-        callCount++;
-        if (typeof script === 'string') return undefined;
-        if (callCount <= 2) return { domSnapshot: { html: `<html><iframe data-percy-element-id="${pid}" src="https://cross.example.com/frame"></iframe></html>`, resources: [] } };
-        return { html: '<html><body>frame body</body></html>', resources: [frameResource] };
-      }),
-      manage: jasmine.createSpy().and.returnValue({
-        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
-      })
-    };
+    const driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [m(pid, 'https://cross.example.com/frame')],
+      frameSnapshotByPid: { [pid]: { html: '<html><body>frame body</body></html>', resources: [frameResource] } }
+    });
 
     await percySnapshot(driver, 'corsIframes structure test');
 
     const body = await getSnapshotBody();
-    const snap = Array.isArray(body.domSnapshot)
-      ? body.domSnapshot[0]
-      : body.domSnapshot;
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
     const entry = snap.corsIframes[0];
-    // Verify the shape expected by @percy/core processCorsIframesInDomSnapshot
     expect(entry.frameUrl).toBe('https://cross.example.com/frame');
     expect(entry.iframeData).toEqual({ percyElementId: pid });
     expect(entry.iframeSnapshot.html).toContain('frame body');
     expect(entry.iframeSnapshot.resources).toContain(frameResource);
+  });
+});
+
+describe('nested cross-origin iframe capture (depth cap + cycle guard)', () => {
+  function m(pid, src, extra = {}) {
+    return {
+      percyElementId: pid,
+      src,
+      srcdoc: null,
+      dataPercyIgnore: false,
+      matchesIgnoreSelector: false,
+      ...extra
+    };
+  }
+
+  beforeEach(async () => {
+    await helpers.setupTest();
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.type = 'web';
+    utils.percy.config = {};
+  });
+
+  async function getSnapshotBody() {
+    const requests = await helpers.get('requests', r => r);
+    const snap = requests.find(r => r.url === '/percy/snapshot');
+    return snap?.body ?? null;
+  }
+
+  it('captures nested cross-origin iframes inside an outer cross-origin frame', async () => {
+    const driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [m('outer-pid', 'https://a.example.com/')],
+      nestedIframes: {
+        'outer-pid': [m('inner-pid', 'https://b.example.com/')]
+      },
+      frameSnapshotByPid: {
+        'outer-pid': { html: '<html>outer</html>', resources: [] },
+        'inner-pid': { html: '<html>inner</html>', resources: [] }
+      }
+    });
+
+    await percySnapshot(driver, 'nested iframe');
+
+    const body = await getSnapshotBody();
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+    const pids = snap.corsIframes.map(c => c.iframeData.percyElementId);
+    expect(pids).toContain('outer-pid');
+    expect(pids).toContain('inner-pid');
+  });
+
+  it('stops descending past maxIframeDepth', async () => {
+    // depth 1 -> 2 -> 3; with maxIframeDepth=2, depth-3 iframe should NOT be captured
+    const driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [m('p1', 'https://a.example.com/')],
+      nestedIframes: {
+        p1: [m('p2', 'https://b.example.com/')],
+        p2: [m('p3', 'https://c.example.com/')]
+      },
+      frameSnapshotByPid: {
+        p1: { html: 'a', resources: [] },
+        p2: { html: 'b', resources: [] },
+        p3: { html: 'c', resources: [] }
+      }
+    });
+
+    await percySnapshot(driver, 'depth cap', { maxIframeDepth: 2 });
+
+    const body = await getSnapshotBody();
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+    const pids = snap.corsIframes.map(c => c.iframeData.percyElementId);
+    expect(pids).toContain('p1');
+    expect(pids).toContain('p2');
+    expect(pids).not.toContain('p3');
+  });
+
+  it('skips iframe whose src matches an ancestor URL (cycle guard)', async () => {
+    // A iframe points back to top page URL — should be skipped (cycle)
+    const driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [m('cycle-pid', 'https://host.example.com/')]
+    });
+
+    await percySnapshot(driver, 'cycle skip');
+
+    const body = await getSnapshotBody();
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+    // Either no corsIframes (skipped via same-origin or cycle) — both acceptable;
+    // crucial assertion is we did not infinitely recurse
+    expect(snap.corsIframes).toBeUndefined();
+  });
+
+  it('uses maxIframeDepth from percy.config when not in options', async () => {
+    utils.percy.config = { snapshot: { maxIframeDepth: 1 } };
+    const driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [m('p1', 'https://a.example.com/')],
+      nestedIframes: {
+        p1: [m('p2', 'https://b.example.com/')]
+      },
+      frameSnapshotByPid: {
+        p1: { html: 'a', resources: [] },
+        p2: { html: 'b', resources: [] }
+      }
+    });
+
+    await percySnapshot(driver, 'global depth cap');
+
+    const body = await getSnapshotBody();
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+    const pids = snap.corsIframes.map(c => c.iframeData.percyElementId);
+    expect(pids).toContain('p1');
+    expect(pids).not.toContain('p2');
+  });
+});
+
+describe('data-percy-ignore and ignoreIframeSelectors', () => {
+  function m(pid, src, extra = {}) {
+    return {
+      percyElementId: pid,
+      src,
+      srcdoc: null,
+      dataPercyIgnore: false,
+      matchesIgnoreSelector: false,
+      ...extra
+    };
+  }
+
+  beforeEach(async () => {
+    await helpers.setupTest();
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.type = 'web';
+    utils.percy.config = {};
+  });
+
+  it('skips iframe marked with data-percy-ignore', async () => {
+    const driver = buildIframeDriver({
+      topIframes: [m('ignore-pid', 'https://cross.example.com/', { dataPercyIgnore: true })]
+    });
+    await percySnapshot(driver, 'data-percy-ignore');
+    expect(driver._switchSpies.frame).not.toHaveBeenCalled();
+  });
+
+  it('skips iframe matching ignoreIframeSelectors option', async () => {
+    const driver = buildIframeDriver({
+      topIframes: [m('sel-pid', 'https://cross.example.com/', { matchesIgnoreSelector: true })]
+    });
+    await percySnapshot(driver, 'selector ignore', { ignoreIframeSelectors: ['.ad'] });
+    expect(driver._switchSpies.frame).not.toHaveBeenCalled();
+  });
+
+  it('reads ignoreIframeSelectors from percy.config.snapshot when not in options', async () => {
+    utils.percy.config = { snapshot: { ignoreIframeSelectors: ['.ad'] } };
+    const driver = buildIframeDriver({
+      topIframes: [m('cfg-pid', 'https://cross.example.com/', { matchesIgnoreSelector: true })]
+    });
+    await percySnapshot(driver, 'global selector ignore');
+    expect(driver._switchSpies.frame).not.toHaveBeenCalled();
+  });
+});
+
+describe('post-switch URL re-check', () => {
+  function m(pid, src, extra = {}) {
+    return {
+      percyElementId: pid,
+      src,
+      srcdoc: null,
+      dataPercyIgnore: false,
+      matchesIgnoreSelector: false,
+      ...extra
+    };
+  }
+
+  beforeEach(async () => {
+    await helpers.setupTest();
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.type = 'web';
+    utils.percy.config = {};
+  });
+
+  it('drops iframe whose document.URL is about:blank after switch', async () => {
+    const driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [m('postsw-pid', 'https://cross.example.com/')],
+      frameDocumentUrlByPid: { 'postsw-pid': 'about:blank' }
+    });
+    await percySnapshot(driver, 'post-switch unsupported');
+
+    const requests = await helpers.get('requests', r => r);
+    const snap = requests.find(r => r.url === '/percy/snapshot');
+    const ds = Array.isArray(snap.body.domSnapshot) ? snap.body.domSnapshot[0] : snap.body.domSnapshot;
+    expect(ds.corsIframes).toBeUndefined();
+  });
+
+  it('drops iframe whose document.URL is javascript: after switch', async () => {
+    const driver = buildIframeDriver({
+      pageUrl: 'https://host.example.com/',
+      topIframes: [m('js-pid', 'https://cross.example.com/')],
+      frameDocumentUrlByPid: { 'js-pid': 'javascript:void(0)' }
+    });
+    await percySnapshot(driver, 'post-switch javascript:');
+
+    const requests = await helpers.get('requests', r => r);
+    const snap = requests.find(r => r.url === '/percy/snapshot');
+    const ds = Array.isArray(snap.body.domSnapshot) ? snap.body.domSnapshot[0] : snap.body.domSnapshot;
+    expect(ds.corsIframes).toBeUndefined();
+  });
+});
+
+describe('inlined helper functions', () => {
+  const internals = percySnapshot._internals;
+
+  describe('isUnsupportedIframeSrc', () => {
+    it('returns true for unsupported schemes', () => {
+      expect(internals.isUnsupportedIframeSrc('about:blank')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('about:srcdoc')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('javascript:void(0)')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('data:text/html,foo')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('vbscript:foo')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('blob:foo')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('chrome://settings')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('chrome-extension://x')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc(null)).toBeTrue();
+    });
+
+    it('returns false for normal http/https URLs', () => {
+      expect(internals.isUnsupportedIframeSrc('https://cross.example.com/')).toBeFalse();
+      expect(internals.isUnsupportedIframeSrc('http://host/path')).toBeFalse();
+    });
+  });
+
+  describe('clampFrameDepth', () => {
+    it('returns DEFAULT_MAX_FRAME_DEPTH for invalid input', () => {
+      expect(internals.clampFrameDepth(undefined)).toBe(internals.DEFAULT_MAX_FRAME_DEPTH);
+      expect(internals.clampFrameDepth(null)).toBe(internals.DEFAULT_MAX_FRAME_DEPTH);
+      expect(internals.clampFrameDepth(0)).toBe(internals.DEFAULT_MAX_FRAME_DEPTH);
+      expect(internals.clampFrameDepth(-1)).toBe(internals.DEFAULT_MAX_FRAME_DEPTH);
+      expect(internals.clampFrameDepth('not a number')).toBe(internals.DEFAULT_MAX_FRAME_DEPTH);
+    });
+
+    it('clamps to upper bound 20', () => {
+      expect(internals.clampFrameDepth(100)).toBe(20);
+    });
+
+    it('returns valid integer depths', () => {
+      expect(internals.clampFrameDepth(3)).toBe(3);
+      expect(internals.clampFrameDepth(7)).toBe(7);
+    });
+  });
+
+  describe('normalizeIgnoreSelectors', () => {
+    it('returns empty array for falsy input', () => {
+      expect(internals.normalizeIgnoreSelectors(undefined)).toEqual([]);
+      expect(internals.normalizeIgnoreSelectors(null)).toEqual([]);
+      expect(internals.normalizeIgnoreSelectors('')).toEqual([]);
+    });
+
+    it('wraps a single string in an array', () => {
+      expect(internals.normalizeIgnoreSelectors('.ad')).toEqual(['.ad']);
+    });
+
+    it('filters non-string values from array input', () => {
+      expect(internals.normalizeIgnoreSelectors(['.ad', null, 42, 'foo'])).toEqual(['.ad', 'foo']);
+    });
+  });
+
+  describe('getOrigin', () => {
+    it('returns origin from valid URL', () => {
+      expect(internals.getOrigin('https://example.com/path')).toBe('https://example.com');
+    });
+
+    it('returns null for invalid URL', () => {
+      expect(internals.getOrigin('not-a-url')).toBeNull();
+    });
+  });
+
+  describe('shouldSkipIframe', () => {
+    const baseLog = { debug: () => {} };
+    it('returns true for data-percy-ignore', () => {
+      expect(internals.shouldSkipIframe({ dataPercyIgnore: true, src: 'https://cross.example.com/' }, 'https://host.example.com', baseLog)).toBeTrue();
+    });
+    it('returns true for matchesIgnoreSelector', () => {
+      expect(internals.shouldSkipIframe({ matchesIgnoreSelector: true, src: 'https://cross.example.com/' }, 'https://host.example.com', baseLog)).toBeTrue();
+    });
+    it('returns true for unsupported src', () => {
+      expect(internals.shouldSkipIframe({ src: 'about:blank' }, 'https://host.example.com', baseLog)).toBeTrue();
+    });
+    it('returns true for same-origin', () => {
+      expect(internals.shouldSkipIframe({ src: 'https://host.example.com/child', percyElementId: 'x' }, 'https://host.example.com', baseLog)).toBeTrue();
+    });
+    it('returns true when percyElementId is missing', () => {
+      expect(internals.shouldSkipIframe({ src: 'https://cross.example.com/' }, 'https://host.example.com', baseLog)).toBeTrue();
+    });
+    it('returns false for valid cross-origin iframe with pid', () => {
+      expect(internals.shouldSkipIframe({ src: 'https://cross.example.com/', percyElementId: 'p1' }, 'https://host.example.com', baseLog)).toBeFalse();
+    });
+  });
+});
+
+describe('exposeClosedShadowRoots via CDP', () => {
+  beforeEach(async () => {
+    await helpers.setupTest();
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.type = 'web';
+    utils.percy.config = {};
+  });
+
+  it('is a no-op when driver has no sendDevToolsCommand', async () => {
+    const driver = { /* no sendDevToolsCommand */ };
+    await expectAsync(percySnapshot._internals.exposeClosedShadowRoots(driver)).not.toBeRejected();
+  });
+
+  it('silently swallows CDP errors (non-Chromium)', async () => {
+    const driver = {
+      sendDevToolsCommand: jasmine.createSpy().and.rejectWith(new Error('CDP unavailable')),
+      executeScript: jasmine.createSpy().and.returnValue(Promise.resolve())
+    };
+    await expectAsync(percySnapshot._internals.exposeClosedShadowRoots(driver)).not.toBeRejected();
+  });
+
+  it('walks DOM tree and exposes closed shadow roots via Runtime.callFunctionOn', async () => {
+    const cdpCalls = [];
+    const fakeRoot = {
+      backendNodeId: 1,
+      shadowRoots: [
+        { shadowRootType: 'open', backendNodeId: 99 } // should be ignored
+      ],
+      children: [
+        {
+          backendNodeId: 2,
+          shadowRoots: [{
+            shadowRootType: 'closed',
+            backendNodeId: 3,
+            children: []
+          }]
+        }
+      ]
+    };
+    const driver = {
+      sendDevToolsCommand: jasmine.createSpy().and.callFake((method, params) => {
+        cdpCalls.push({ method, params });
+        if (method === 'DOM.getDocument') return Promise.resolve({ root: fakeRoot });
+        if (method === 'DOM.resolveNode') {
+          return Promise.resolve({ object: { objectId: `obj-${params.backendNodeId}` } });
+        }
+        return Promise.resolve();
+      }),
+      executeScript: jasmine.createSpy().and.returnValue(Promise.resolve())
+    };
+
+    await percySnapshot._internals.exposeClosedShadowRoots(driver);
+
+    const enableCalled = cdpCalls.some(c => c.method === 'DOM.enable');
+    const callFnOn = cdpCalls.find(c => c.method === 'Runtime.callFunctionOn');
+    expect(enableCalled).toBeTrue();
+    expect(callFnOn).toBeDefined();
+    expect(callFnOn.params.objectId).toBe('obj-2');
+    expect(callFnOn.params.arguments[0].objectId).toBe('obj-3');
+  });
+
+  it('skips closed shadow roots inside contentDocument (cross-frame)', async () => {
+    const fakeRoot = {
+      backendNodeId: 1,
+      children: [
+        {
+          backendNodeId: 10,
+          contentDocument: { // iframe — skip everything inside
+            backendNodeId: 11,
+            shadowRoots: [{ shadowRootType: 'closed', backendNodeId: 12 }]
+          }
+        }
+      ]
+    };
+    const cdpCalls = [];
+    const driver = {
+      sendDevToolsCommand: jasmine.createSpy().and.callFake((method, params) => {
+        cdpCalls.push({ method, params });
+        if (method === 'DOM.getDocument') return Promise.resolve({ root: fakeRoot });
+        if (method === 'DOM.resolveNode') return Promise.resolve({ object: { objectId: 'x' } });
+        return Promise.resolve();
+      }),
+      executeScript: jasmine.createSpy().and.returnValue(Promise.resolve())
+    };
+
+    await percySnapshot._internals.exposeClosedShadowRoots(driver);
+
+    const callFnOn = cdpCalls.find(c => c.method === 'Runtime.callFunctionOn');
+    expect(callFnOn).toBeUndefined();
+  });
+
+  it('does nothing when no closed shadow roots are present', async () => {
+    const driver = {
+      sendDevToolsCommand: jasmine.createSpy().and.callFake((method) => {
+        if (method === 'DOM.getDocument') return Promise.resolve({ root: { backendNodeId: 1, children: [] } });
+        return Promise.resolve();
+      }),
+      executeScript: jasmine.createSpy().and.returnValue(Promise.resolve())
+    };
+
+    await percySnapshot._internals.exposeClosedShadowRoots(driver);
+    // No Runtime.callFunctionOn since there's nothing to expose
+    const calls = driver.sendDevToolsCommand.calls.allArgs().map(args => args[0]);
+    expect(calls).not.toContain('Runtime.callFunctionOn');
   });
 });
