@@ -1652,7 +1652,9 @@ describe('corsIframes population in captureSerializedDOM', () => {
     });
 
     it('still serializes when executeAsyncScript rejects', async () => {
-      spyOn(driver, 'executeAsyncScript').and.returnValue(Promise.reject(new Error('readiness boom')));
+      // Use callFake so the rejected promise is only created when the SDK
+      // awaits it (avoids an unhandled-rejection in the test-setup tick).
+      spyOn(driver, 'executeAsyncScript').and.callFake(() => Promise.reject(new Error('readiness boom')));
       spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
         domSnapshot: { html: '<html></html>', resources: [] },
         url: 'http://localhost/'
@@ -1668,7 +1670,7 @@ describe('corsIframes population in captureSerializedDOM', () => {
     it('still serializes when executeAsyncScript rejects with a non-Error', async () => {
       // Covers the `err?.message || err` second branch in the .catch handler:
       // rejection value has no `.message`, so logging falls through to err itself.
-      spyOn(driver, 'executeAsyncScript').and.returnValue(Promise.reject('plain-string-rejection'));
+      spyOn(driver, 'executeAsyncScript').and.callFake(() => Promise.reject('plain-string-rejection'));
       spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
         domSnapshot: { html: '<html></html>', resources: [] },
         url: 'http://localhost/'
