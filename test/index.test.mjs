@@ -1584,6 +1584,28 @@ describe('corsIframes population in captureSerializedDOM', () => {
   });
 
   describe('readiness gate (PER-7348)', () => {
+    // This describe block is nested under `corsIframes population in
+    // captureSerializedDOM`, which does not declare a `driver` at its
+    // scope — the percySnapshot suite at the top of the file does, but
+    // not this one. Construct a minimal mock driver per-test so the
+    // spyOn(driver, …) calls below have something to attach to.
+    let driver;
+    beforeEach(() => {
+      driver = {
+        getCurrentUrl: jasmine.createSpy('getCurrentUrl').and.returnValue(Promise.resolve('https://example.com/')),
+        findElements: jasmine.createSpy('findElements').and.returnValue(Promise.resolve([])),
+        switchTo: jasmine.createSpy('switchTo').and.returnValue({
+          frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
+          defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
+        }),
+        executeScript: jasmine.createSpy('executeScript').and.returnValue(Promise.resolve()),
+        executeAsyncScript: jasmine.createSpy('executeAsyncScript').and.returnValue(Promise.resolve()),
+        manage: jasmine.createSpy('manage').and.returnValue({
+          getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve([]))
+        })
+      };
+    });
+
     it('calls executeAsyncScript with waitForReady before serialize', async () => {
       const asyncSpy = spyOn(driver, 'executeAsyncScript').and.returnValue(
         Promise.resolve({ ok: true, timed_out: false })
