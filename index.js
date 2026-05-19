@@ -95,28 +95,38 @@ async function captureResponsiveDOM(driver, options) {
   return domSnapshots;
 }
 
+// In-browser readiness invoker. Defined at module scope so the typeof
+// guard branches are unit-testable in Node against a stubbed `PercyDOM`
+// global — that's how we cover the body without `istanbul ignore`. Uses
+// the executeAsyncScript callback convention: the trailing `done` argument
+// is invoked once with the diagnostics (or no args on fallthrough). The
+// outer try/catch is defensive against any synchronous throw inside
+// PercyDOM.waitForReady.
+function browserWaitForReady(cfg, done) {
+  try {
+    /* eslint-disable-next-line no-undef */
+    if (typeof PercyDOM !== 'undefined' && typeof PercyDOM.waitForReady === 'function') {
+      /* eslint-disable-next-line no-undef */
+      PercyDOM.waitForReady(cfg).then(function(r) { done(r); }).catch(function() { done(); });
+    } else {
+      done();
+    }
+  } catch (e) { done(); }
+}
+
 async function captureSerializedDOM(driver, options) {
   const log = utils.logger('selenium');
   // Fetch the script once at the start of serialization
   const percyDOMScript = await utils.fetchPercyDOM();
 
   // Readiness gate — runs before serialize when CLI supports it (PER-7348).
-  // Uses executeAsyncScript with a callback signal (robust across selenium-webdriver
-  // versions whose executeScript Promise handling varies). In-browser typeof guard
-  // makes this a no-op on older CLIs that lack waitForReady.
+  // executeAsyncScript with the callback signal is robust across
+  // selenium-webdriver versions whose executeScript Promise handling varies.
   let readinessDiagnostics;
   const readinessConfig = options?.readiness || utils.percy?.config?.snapshot?.readiness || {};
   if (readinessConfig.preset !== 'disabled') {
     try {
-      readinessDiagnostics = await driver.executeAsyncScript(function(cfg, done) {
-        try {
-          if (typeof PercyDOM !== 'undefined' && typeof PercyDOM.waitForReady === 'function') {
-            PercyDOM.waitForReady(cfg).then(function(r) { done(r); }).catch(function() { done(); });
-          } else {
-            done();
-          }
-        } catch (e) { done(); }
-      }, readinessConfig);
+      readinessDiagnostics = await driver.executeAsyncScript(browserWaitForReady, readinessConfig);
     } catch (err) {
       log.debug(`waitForReady failed, proceeding to serialize: ${err?.message || err}`);
     }
@@ -475,3 +485,5 @@ module.exports.slowScrollToBottom = async (driver, scrollSleep = SCROLL_DEFAULT_
   }
   await new Promise(resolve => setTimeout(resolve, sleepAfterScroll * 1000));
 };
+
+module.exports.__test__ = { browserWaitForReady };
