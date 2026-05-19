@@ -1611,7 +1611,8 @@ describe('corsIframes population in captureSerializedDOM', () => {
         Promise.resolve({ ok: true, timed_out: false })
       );
       spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
-        domSnapshot: { html: '<html></html>', resources: [] }
+        domSnapshot: { html: '<html></html>', resources: [] },
+        url: 'http://localhost/'
       }));
 
       await percySnapshot(driver, 'readiness-happy-path');
@@ -1626,7 +1627,8 @@ describe('corsIframes population in captureSerializedDOM', () => {
         Promise.resolve(null)
       );
       spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
-        domSnapshot: { html: '<html></html>', resources: [] }
+        domSnapshot: { html: '<html></html>', resources: [] },
+        url: 'http://localhost/'
       }));
       const readiness = { preset: 'strict', stabilityWindowMs: 500 };
 
@@ -1640,7 +1642,8 @@ describe('corsIframes population in captureSerializedDOM', () => {
     it('skips executeAsyncScript when preset is disabled', async () => {
       const asyncSpy = spyOn(driver, 'executeAsyncScript').and.returnValue(Promise.resolve());
       spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
-        domSnapshot: { html: '<html></html>', resources: [] }
+        domSnapshot: { html: '<html></html>', resources: [] },
+        url: 'http://localhost/'
       }));
 
       await percySnapshot(driver, 'readiness-disabled', { readiness: { preset: 'disabled' } });
@@ -1651,7 +1654,8 @@ describe('corsIframes population in captureSerializedDOM', () => {
     it('still serializes when executeAsyncScript rejects', async () => {
       spyOn(driver, 'executeAsyncScript').and.returnValue(Promise.reject(new Error('readiness boom')));
       spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
-        domSnapshot: { html: '<html></html>', resources: [] }
+        domSnapshot: { html: '<html></html>', resources: [] },
+        url: 'http://localhost/'
       }));
 
       await percySnapshot(driver, 'readiness-reject');
@@ -1666,7 +1670,8 @@ describe('corsIframes population in captureSerializedDOM', () => {
       // rejection value has no `.message`, so logging falls through to err itself.
       spyOn(driver, 'executeAsyncScript').and.returnValue(Promise.reject('plain-string-rejection'));
       spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
-        domSnapshot: { html: '<html></html>', resources: [] }
+        domSnapshot: { html: '<html></html>', resources: [] },
+        url: 'http://localhost/'
       }));
 
       await percySnapshot(driver, 'readiness-reject-string');
