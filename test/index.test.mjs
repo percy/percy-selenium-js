@@ -7,6 +7,29 @@ import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
 const { percyScreenshot, slowScrollToBottom, createRegion } = percySnapshot;
 
+// Forward-compat shim: `utils.runReadinessGate` is the orchestrator added
+// in @percy/sdk-utils 1.31.15. Until that version is published, polyfill
+// it here so tests exercise the real call shape instead of being skipped
+// by the SDK's typeof guard. Once 1.31.15 lands, this becomes a no-op.
+if (typeof utils.runReadinessGate !== 'function') {
+  utils.runReadinessGate = async function runReadinessGate(evalScript, snapshotOptions = {}, { callback = false, log } = {}) {
+    if (typeof utils.isReadinessDisabled === 'function' && utils.isReadinessDisabled(snapshotOptions)) return null;
+    const config = typeof utils.getReadinessConfig === 'function'
+      ? utils.getReadinessConfig(snapshotOptions)
+      : { ...(utils.percy?.config?.snapshot?.readiness || {}), ...(snapshotOptions?.readiness || {}) };
+    const script = typeof utils.waitForReadyScript === 'function'
+      ? utils.waitForReadyScript(config, { callback })
+      : null;
+    if (!script) return null;
+    try {
+      return await evalScript(script);
+    } catch (err) {
+      log?.debug?.(`waitForReady failed, proceeding to serialize: ${err?.message || err}`);
+      return null;
+    }
+  };
+}
+
 describe('percySnapshot', () => {
   let driver;
   let mockedDriver;
