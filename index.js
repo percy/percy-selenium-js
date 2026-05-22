@@ -100,15 +100,20 @@ async function captureSerializedDOM(driver, options) {
   // Fetch the script once at the start of serialization
   const percyDOMScript = await utils.fetchPercyDOM();
 
-  // Readiness gate (PER-7348). `waitForReadyScript({ callback: true })` is the
-  // shared callback-mode helper from @percy/sdk-utils — uses
-  // `arguments[arguments.length - 1]` for the executeAsyncScript done callback,
-  // which is robust across selenium-webdriver Promise-handling variations.
+  // Readiness gate (PER-7348). Helpers from @percy/sdk-utils 1.31.14+;
+  // typeof guards fall back to local resolution so a stale lockfile-pinned
+  // sdk-utils version degrades to a no-op instead of crashing the snapshot.
   let readinessDiagnostics;
-  if (!utils.isReadinessDisabled(options)) {
+  const readinessDisabled = typeof utils.isReadinessDisabled === 'function'
+    ? utils.isReadinessDisabled(options)
+    : ((options?.readiness || utils.percy?.config?.snapshot?.readiness)?.preset === 'disabled');
+  if (!readinessDisabled && typeof utils.waitForReadyScript === 'function') {
+    const readinessConfig = typeof utils.getReadinessConfig === 'function'
+      ? utils.getReadinessConfig(options)
+      : { ...(utils.percy?.config?.snapshot?.readiness || {}), ...(options?.readiness || {}) };
     try {
       readinessDiagnostics = await driver.executeAsyncScript(
-        utils.waitForReadyScript(utils.getReadinessConfig(options), { callback: true })
+        utils.waitForReadyScript(readinessConfig, { callback: true })
       );
     } catch (err) {
       log.debug(`waitForReady failed, proceeding to serialize: ${err?.message || err}`);
