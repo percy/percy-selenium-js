@@ -100,24 +100,17 @@ async function captureSerializedDOM(driver, options) {
   // Fetch the script once at the start of serialization
   const percyDOMScript = await utils.fetchPercyDOM();
 
-  // Readiness gate (PER-7348). Helpers from @percy/sdk-utils 1.31.14+;
-  // typeof guards fall back to local resolution so a stale lockfile-pinned
-  // sdk-utils version degrades to a no-op instead of crashing the snapshot.
+  // Readiness gate (PER-7348). All orchestration lives in @percy/sdk-utils
+  // 1.31.15+: disabled-check + shallow-merge config + callback-mode script
+  // generation + try/catch. typeof guard for backward compat — degrades to
+  // no-op on older sdk-utils versions.
   let readinessDiagnostics;
-  const readinessDisabled = typeof utils.isReadinessDisabled === 'function'
-    ? utils.isReadinessDisabled(options)
-    : ((options?.readiness || utils.percy?.config?.snapshot?.readiness)?.preset === 'disabled');
-  if (!readinessDisabled && typeof utils.waitForReadyScript === 'function') {
-    const readinessConfig = typeof utils.getReadinessConfig === 'function'
-      ? utils.getReadinessConfig(options)
-      : { ...(utils.percy?.config?.snapshot?.readiness || {}), ...(options?.readiness || {}) };
-    try {
-      readinessDiagnostics = await driver.executeAsyncScript(
-        utils.waitForReadyScript(readinessConfig, { callback: true })
-      );
-    } catch (err) {
-      log.debug(`waitForReady failed, proceeding to serialize: ${err?.message || err}`);
-    }
+  if (typeof utils.runReadinessGate === 'function') {
+    readinessDiagnostics = await utils.runReadinessGate(
+      (script) => driver.executeAsyncScript(script),
+      options,
+      { callback: true, log }
+    );
   }
 
   /* istanbul ignore next */
