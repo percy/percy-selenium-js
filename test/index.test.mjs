@@ -6,7 +6,6 @@ import percySnapshot from '../index.js';
 import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
 const { percyScreenshot, slowScrollToBottom, createRegion } = percySnapshot;
-const { browserWaitForReady } = percySnapshot.__test__;
 
 describe('percySnapshot', () => {
   let driver;
@@ -1619,10 +1618,14 @@ describe('corsIframes population in captureSerializedDOM', () => {
 
       expect(asyncSpy).toHaveBeenCalled();
       const firstCall = asyncSpy.calls.first();
-      expect(firstCall.args[0].toString()).toContain('waitForReady');
+      // sdk-utils.waitForReadyScript({ callback: true }) emits a STRING using
+      // `arguments[arguments.length - 1]` for the executeAsync done callback.
+      expect(typeof firstCall.args[0]).toBe('string');
+      expect(firstCall.args[0]).toContain('PercyDOM.waitForReady');
+      expect(firstCall.args[0]).toContain('arguments[arguments.length - 1]');
     });
 
-    it('passes per-snapshot readiness config', async () => {
+    it('inlines per-snapshot readiness config as JSON into the script', async () => {
       const asyncSpy = spyOn(driver, 'executeAsyncScript').and.returnValue(
         Promise.resolve(null)
       );
@@ -1636,7 +1639,10 @@ describe('corsIframes population in captureSerializedDOM', () => {
 
       const call = asyncSpy.calls.first();
       expect(call).toBeTruthy();
-      expect(call.args[1]).toEqual(readiness);
+      // sdk-utils inlines the config via JSON.stringify rather than passing
+      // it as a separate driver.executeAsyncScript argument.
+      expect(call.args[0]).toContain('"preset":"strict"');
+      expect(call.args[0]).toContain('"stabilityWindowMs":500');
     });
 
     it('skips executeAsyncScript when preset is disabled', async () => {
@@ -1685,61 +1691,3 @@ describe('corsIframes population in captureSerializedDOM', () => {
   });
 });
 
-// Unit tests for the in-browser readiness invoker. Runs in Node against a
-// stubbed `PercyDOM` global so the typeof-guard + try/catch branches get
-// real statement/branch coverage instead of being suppressed.
-describe('browserWaitForReady', () => {
-  afterEach(() => {
-    delete globalThis.PercyDOM;
-  });
-
-  it('invokes done with no args when PercyDOM is undefined', () => {
-    const done = jasmine.createSpy('done');
-    browserWaitForReady({ preset: 'balanced' }, done);
-    expect(done).toHaveBeenCalledWith();
-  });
-
-  it('invokes done with no args when PercyDOM lacks waitForReady', () => {
-    globalThis.PercyDOM = {};
-    const done = jasmine.createSpy('done');
-    browserWaitForReady({ preset: 'balanced' }, done);
-    expect(done).toHaveBeenCalledWith();
-  });
-
-  it('invokes done with diagnostics when PercyDOM.waitForReady resolves', async () => {
-    const diagnostics = { passed: true, preset: 'strict' };
-    globalThis.PercyDOM = {
-      waitForReady: jasmine.createSpy('waitForReady').and.returnValue(Promise.resolve(diagnostics))
-    };
-    const done = jasmine.createSpy('done');
-
-    browserWaitForReady({ preset: 'strict' }, done);
-    // Drain microtasks so the .then handler runs.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(globalThis.PercyDOM.waitForReady).toHaveBeenCalledWith({ preset: 'strict' });
-    expect(done).toHaveBeenCalledWith(diagnostics);
-  });
-
-  it('invokes done with no args when PercyDOM.waitForReady rejects', async () => {
-    globalThis.PercyDOM = {
-      waitForReady: jasmine.createSpy('waitForReady').and.returnValue(Promise.reject(new Error('boom')))
-    };
-    const done = jasmine.createSpy('done');
-
-    browserWaitForReady({ preset: 'balanced' }, done);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(done).toHaveBeenCalledWith();
-  });
-
-  it('invokes done with no args when PercyDOM.waitForReady throws synchronously', () => {
-    globalThis.PercyDOM = {
-      waitForReady: () => { throw new Error('sync boom'); }
-    };
-    const done = jasmine.createSpy('done');
-
-    browserWaitForReady({ preset: 'balanced' }, done);
-    expect(done).toHaveBeenCalledWith();
-  });
-});
