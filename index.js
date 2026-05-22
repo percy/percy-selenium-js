@@ -408,7 +408,7 @@ async function changeWindowDimensionAndWait(driver, width, height, resizeCount) 
   try {
     await driver.wait(async () => {
       /* istanbul ignore next: no instrumenting injected code */
-      await driver.executeScript('return window.resizeCount') === resizeCount;
+      return await driver.executeScript('return window.resizeCount') === resizeCount;
     }, 1000);
   } catch (e) {
     log.debug(`Timed out waiting for window resize event for width ${width}`, e);
