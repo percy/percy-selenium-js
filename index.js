@@ -309,15 +309,27 @@ async function captureCorsIframes(driver, currentUrl, options, percyDOMScript) {
 // CDP's DOM domain can pierce them. We resolve each to a JS object handle and
 // store it in window.__percyClosedShadowRoots (a WeakMap keyed by host element).
 async function exposeClosedShadowRoots(driver) {
-  /* istanbul ignore next: CDP path requires selenium-webdriver Chrome driver — covered by mocked tests */
-  if (typeof driver?.sendDevToolsCommand !== 'function') return;
+  // Some drivers (e.g. Appium-based BrowserStack Automate) only expose
+  // sendAndGetDevToolsCommand; others expose sendDevToolsCommand; some both.
+  // We need at least one to walk the CDP DOM.
+  if (
+    typeof driver?.sendDevToolsCommand !== 'function' &&
+    typeof driver?.sendAndGetDevToolsCommand !== 'function'
+  ) return;
+
+  // Prefer sendAndGetDevToolsCommand (returns the result); fall back to
+  // sendDevToolsCommand. The selected function must be invoked through a
+  // single, awaited call — earlier code split the ternary across the await,
+  // which let the *unresolved Promise* be destructured as `{ root }` and
+  // silently dropped the closed-shadow-DOM capture path.
+  const cdp = typeof driver.sendAndGetDevToolsCommand === 'function'
+    ? driver.sendAndGetDevToolsCommand.bind(driver)
+    : driver.sendDevToolsCommand.bind(driver);
 
   try {
-    await driver.sendDevToolsCommand('DOM.enable', {});
+    await cdp('DOM.enable', {});
 
-    const { root } = await driver.sendAndGetDevToolsCommand
-      ? await driver.sendAndGetDevToolsCommand('DOM.getDocument', { depth: -1, pierce: true })
-      : await driver.sendDevToolsCommand('DOM.getDocument', { depth: -1, pierce: true }) || {};
+    const { root } = (await cdp('DOM.getDocument', { depth: -1, pierce: true })) || {};
 
     if (!root) {
       log.debug('CDP DOM.getDocument returned no root; skipping closed shadow root capture');
@@ -359,12 +371,8 @@ async function exposeClosedShadowRoots(driver) {
     });
 
     for (const pair of closedPairs) {
-      const hostResp = await (driver.sendAndGetDevToolsCommand
-        ? driver.sendAndGetDevToolsCommand('DOM.resolveNode', { backendNodeId: pair.hostBackendNodeId })
-        : driver.sendDevToolsCommand('DOM.resolveNode', { backendNodeId: pair.hostBackendNodeId }));
-      const shadowResp = await (driver.sendAndGetDevToolsCommand
-        ? driver.sendAndGetDevToolsCommand('DOM.resolveNode', { backendNodeId: pair.shadowBackendNodeId })
-        : driver.sendDevToolsCommand('DOM.resolveNode', { backendNodeId: pair.shadowBackendNodeId }));
+      const hostResp = await cdp('DOM.resolveNode', { backendNodeId: pair.hostBackendNodeId });
+      const shadowResp = await cdp('DOM.resolveNode', { backendNodeId: pair.shadowBackendNodeId });
 
       const hostObjectId = hostResp?.object?.objectId;
       const shadowObjectId = shadowResp?.object?.objectId;
@@ -375,11 +383,7 @@ async function exposeClosedShadowRoots(driver) {
         objectId: hostObjectId,
         arguments: [{ objectId: shadowObjectId }]
       };
-      if (driver.sendAndGetDevToolsCommand) {
-        await driver.sendAndGetDevToolsCommand('Runtime.callFunctionOn', cmd);
-      } else {
-        await driver.sendDevToolsCommand('Runtime.callFunctionOn', cmd);
-      }
+      await cdp('Runtime.callFunctionOn', cmd);
     }
   } catch (err) {
     // Non-fatal — closed shadow DOM just won't be captured (e.g. non-Chromium)
