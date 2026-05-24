@@ -1960,6 +1960,217 @@ describe('processFrameTree - rare error/finally branches', () => {
     expect(pids).toContain('inner');
     expect(pids).not.toContain('sibling');
   });
+
+  it('handles empty frameUrl + non-array enumerate result inside a frame', async () => {
+    // Drives the four defensive fallbacks at lines 218-225 of processFrameTree:
+    //   - `frameUrl || meta.src` when frameUrl is empty
+    //   - `Array.isArray(childrenRaw) ? : []` when enumerate returns null
+    //   - `if (frameUrl)` skipping nextAncestors.add for frameUrl
+    // We inject an empty post-switch URL via document.URL → '' and return
+    // null from the nested enumerate call.
+    const pageUrl = 'https://host.example.com/';
+    const meta = (pid, src) => ({
+      percyElementId: pid, src, srcdoc: null,
+      dataPercyIgnore: false, matchesIgnoreSelector: false
+    });
+    let currentPid = null;
+    const switchSpies = {
+      frame: jasmine.createSpy().and.callFake((el) => { currentPid = el?.__pid; return Promise.resolve(); }),
+      defaultContent: jasmine.createSpy().and.callFake(() => { currentPid = null; return Promise.resolve(); }),
+      parentFrame: jasmine.createSpy().and.callFake(() => { currentPid = null; return Promise.resolve(); })
+    };
+    const driver = {
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve(pageUrl)),
+      findElement: jasmine.createSpy().and.callFake(async (locator) => {
+        const str = locator?.value || String(locator);
+        const m = /data-percy-element-id="([^"]+)"/.exec(str);
+        return m ? { __pid: m[1] } : null;
+      }),
+      switchTo: jasmine.createSpy().and.callFake(() => switchSpies),
+      executeScript: jasmine.createSpy().and.callFake(async (script) => {
+        if (typeof script === 'string') return undefined;
+        const body = script.toString();
+        if (body.includes('PercyDOM.serialize')) {
+          if (currentPid === null) return { domSnapshot: { html: '<html></html>', resources: [] } };
+          return { html: currentPid, resources: [] };
+        }
+        // Frame's document.URL returns empty — exercise frameUrl-falsy fallback
+        if (body.includes('document.URL')) {
+          if (currentPid === 'outer') return '';
+          return pageUrl;
+        }
+        if (body.includes('document.querySelectorAll') && body.includes('iframe')) {
+          if (currentPid === null) return [{ ...meta('outer', 'https://a.example.com/'), index: 0 }];
+          // Inside outer: return non-array → Array.isArray fallback fires.
+          if (currentPid === 'outer') return null;
+          return [];
+        }
+        return undefined;
+      }),
+      manage: jasmine.createSpy().and.returnValue({
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      })
+    };
+    await percySnapshot(driver, 'empty-frameurl + non-array enumerate');
+
+    const body = await getSnapshotBody();
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+    const pids = (snap.corsIframes || []).map(c => c.iframeData.percyElementId);
+    expect(pids).toContain('outer');
+  });
+
+  it('attaches capturedError as cause when finally throws percyContextLost', async () => {
+    // Drives line 265: `if (capturedError) err.cause = capturedError;`.
+    // Requires the inner depth-2 frame to BOTH throw inside the try (so the
+    // catch sets capturedError) AND have its finally's parentFrame fail
+    // (so finally re-throws percyContextLost with the cause attached).
+    const pageUrl = 'https://host.example.com/';
+    const meta = (pid, src) => ({
+      percyElementId: pid, src, srcdoc: null,
+      dataPercyIgnore: false, matchesIgnoreSelector: false
+    });
+    let currentPid = null;
+    const switchSpies = {
+      frame: jasmine.createSpy().and.callFake((el) => { currentPid = el?.__pid; return Promise.resolve(); }),
+      defaultContent: jasmine.createSpy().and.callFake(() => { currentPid = null; return Promise.resolve(); }),
+      // parentFrame ALWAYS fails — inner depth-2 finally hits the throw branch.
+      parentFrame: jasmine.createSpy().and.callFake(() => Promise.reject(new Error('parentFrame dead')))
+    };
+    const driver = {
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve(pageUrl)),
+      findElement: jasmine.createSpy().and.callFake(async (locator) => {
+        const str = locator?.value || String(locator);
+        const m = /data-percy-element-id="([^"]+)"/.exec(str);
+        return m ? { __pid: m[1] } : null;
+      }),
+      switchTo: jasmine.createSpy().and.callFake(() => switchSpies),
+      executeScript: jasmine.createSpy().and.callFake(async (script) => {
+        if (typeof script === 'string') return undefined;
+        const body = script.toString();
+        if (body.includes('PercyDOM.serialize')) {
+          if (currentPid === null) return { domSnapshot: { html: '<html></html>', resources: [] } };
+          // Inner serialize THROWS → catch sets capturedError.
+          if (currentPid === 'inner') throw new Error('inner serialize boom');
+          return { html: currentPid, resources: [] };
+        }
+        if (body.includes('document.URL')) {
+          if (currentPid === 'outer') return 'https://a.example.com/';
+          if (currentPid === 'inner') return 'https://b.example.com/';
+          return pageUrl;
+        }
+        if (body.includes('document.querySelectorAll') && body.includes('iframe')) {
+          if (currentPid === null) return [{ ...meta('outer', 'https://a.example.com/'), index: 0 }];
+          if (currentPid === 'outer') return [{ ...meta('inner', 'https://b.example.com/'), index: 0 }];
+          return [];
+        }
+        return undefined;
+      }),
+      manage: jasmine.createSpy().and.returnValue({
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      })
+    };
+    await expectAsync(percySnapshot(driver, 'cause attached')).not.toBeRejected();
+  });
+
+  it('handles percyContextLost with no partialCapture inside outer recursion', async () => {
+    // Drives line 234-237 false-branch: `Array.isArray && length` is false
+    // when partialCapture is missing or empty. Also exercises lines 298-300
+    // in captureCorsIframes where the outer loop receives a percyContextLost
+    // with no partial capture to merge.
+    //
+    // Setup: inner frame has no children, parentFrame fails at depth=2 before
+    // the inner serialize completes (we trigger by making inner serialize throw,
+    // then parentFrame fails). The error.partialCapture is the empty collected
+    // array at the depth-2 catch site.
+    const pageUrl = 'https://host.example.com/';
+    const meta = (pid, src) => ({
+      percyElementId: pid, src, srcdoc: null,
+      dataPercyIgnore: false, matchesIgnoreSelector: false
+    });
+    let currentPid = null;
+    const switchSpies = {
+      frame: jasmine.createSpy().and.callFake((el) => { currentPid = el?.__pid; return Promise.resolve(); }),
+      defaultContent: jasmine.createSpy().and.callFake(() => { currentPid = null; return Promise.resolve(); }),
+      parentFrame: jasmine.createSpy().and.callFake(() => Promise.reject(new Error('parentFrame fail')))
+    };
+    const driver = {
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve(pageUrl)),
+      findElement: jasmine.createSpy().and.callFake(async (locator) => {
+        const str = locator?.value || String(locator);
+        const m = /data-percy-element-id="([^"]+)"/.exec(str);
+        return m ? { __pid: m[1] } : null;
+      }),
+      switchTo: jasmine.createSpy().and.callFake(() => switchSpies),
+      executeScript: jasmine.createSpy().and.callFake(async (script) => {
+        if (typeof script === 'string') return undefined;
+        const body = script.toString();
+        if (body.includes('PercyDOM.serialize')) {
+          // Outer captures fine; inner THROWS so its collected stays empty.
+          if (currentPid === null) return { domSnapshot: { html: '<html></html>', resources: [] } };
+          if (currentPid === 'inner') throw new Error('inner serialize boom');
+          return { html: currentPid, resources: [] };
+        }
+        if (body.includes('document.URL')) {
+          if (currentPid === 'outer') return 'https://a.example.com/';
+          if (currentPid === 'inner') return 'https://b.example.com/';
+          return pageUrl;
+        }
+        if (body.includes('document.querySelectorAll') && body.includes('iframe')) {
+          if (currentPid === null) return [{ ...meta('outer', 'https://a.example.com/'), index: 0 }];
+          if (currentPid === 'outer') return [{ ...meta('inner', 'https://b.example.com/'), index: 0 }];
+          return [];
+        }
+        return undefined;
+      }),
+      manage: jasmine.createSpy().and.returnValue({
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      })
+    };
+    await expectAsync(percySnapshot(driver, 'empty partialCapture')).not.toBeRejected();
+  });
+});
+
+describe('percySnapshot called with no options argument', () => {
+  // Drives line 520 (and its sibling guards): `options || {}` falsy-branch.
+  beforeEach(async () => {
+    await helpers.setupTest();
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.type = 'web';
+    utils.percy.config = {};
+  });
+
+  it('does not throw when options is undefined', async () => {
+    const driver = {
+      getCapabilities: jasmine.createSpy().and.returnValue(Promise.resolve({ getBrowserName: () => 'chrome' })),
+      sendDevToolsCommand: jasmine.createSpy().and.returnValue(Promise.resolve()),
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
+      findElement: jasmine.createSpy().and.returnValue(Promise.resolve(null)),
+      switchTo: jasmine.createSpy().and.returnValue({
+        frame: jasmine.createSpy().and.returnValue(Promise.resolve()),
+        defaultContent: jasmine.createSpy().and.returnValue(Promise.resolve())
+      }),
+      executeScript: jasmine.createSpy().and.callFake(async (script) => {
+        if (typeof script === 'string') return undefined;
+        const body = script.toString();
+        if (body.includes('PercyDOM.serialize')) {
+          return { domSnapshot: { html: '<html></html>', resources: [] } };
+        }
+        if (body.includes('document.URL')) return 'https://host.example.com/';
+        if (body.includes('document.querySelectorAll') && body.includes('iframe')) return [];
+        return undefined;
+      }),
+      manage: jasmine.createSpy().and.returnValue({
+        window: jasmine.createSpy().and.returnValue({
+          setRect: jasmine.createSpy().and.returnValue(Promise.resolve()),
+          getRect: jasmine.createSpy().and.returnValue(Promise.resolve({ width: 1024, height: 768 }))
+        }),
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      }),
+      wait: jasmine.createSpy().and.returnValue(Promise.resolve())
+    };
+    // No options argument at all → captureCorsIframes(... , options || {} , ...)
+    await expectAsync(percySnapshot(driver, 'no-options')).not.toBeRejected();
+  });
 });
 
 describe('data-percy-ignore and ignoreIframeSelectors', () => {
@@ -2362,6 +2573,61 @@ describe('exposeClosedShadowRoots via CDP', () => {
       const driver = { /* no CDP at all */ };
       await expectAsync(percySnapshot._internals.exposeClosedShadowRoots(driver))
         .not.toBeRejected();
+    });
+
+    it('walks past null/undefined children without throwing', async () => {
+      // Drives `if (!node) return;` inside walk(): the root has a children
+      // array containing a null entry. The function must skip it rather than
+      // dereference.
+      const fakeRoot = {
+        backendNodeId: 1,
+        children: [
+          null, // <-- triggers `if (!node) return;`
+          { backendNodeId: 2, shadowRoots: [{ shadowRootType: 'closed', backendNodeId: 3 }] }
+        ]
+      };
+      const cdpCalls = [];
+      const driver = {
+        sendDevToolsCommand: jasmine.createSpy().and.callFake((method, params) => {
+          cdpCalls.push({ method, params });
+          if (method === 'DOM.getDocument') return Promise.resolve({ root: fakeRoot });
+          if (method === 'DOM.resolveNode') return Promise.resolve({ object: { objectId: `obj-${params.backendNodeId}` } });
+          return Promise.resolve();
+        }),
+        executeScript: jasmine.createSpy().and.returnValue(Promise.resolve())
+      };
+
+      await percySnapshot._internals.exposeClosedShadowRoots(driver);
+      // The closed root on the *non-null* sibling must still be exposed.
+      const callFnOn = cdpCalls.find(c => c.method === 'Runtime.callFunctionOn');
+      expect(callFnOn).toBeDefined();
+    });
+
+    it('skips closed pair when resolveNode returns no object', async () => {
+      // Drives `if (!hostObjectId || !shadowObjectId) continue;` — the closed
+      // pair is discovered but resolveNode returns an empty payload, so
+      // Runtime.callFunctionOn is NOT invoked for that pair.
+      const fakeRoot = {
+        backendNodeId: 1,
+        children: [{
+          backendNodeId: 2,
+          shadowRoots: [{ shadowRootType: 'closed', backendNodeId: 3 }]
+        }]
+      };
+      const cdpCalls = [];
+      const driver = {
+        sendDevToolsCommand: jasmine.createSpy().and.callFake((method) => {
+          cdpCalls.push({ method });
+          if (method === 'DOM.getDocument') return Promise.resolve({ root: fakeRoot });
+          if (method === 'DOM.resolveNode') return Promise.resolve({}); // <-- no `object`
+          return Promise.resolve();
+        }),
+        executeScript: jasmine.createSpy().and.returnValue(Promise.resolve())
+      };
+
+      await percySnapshot._internals.exposeClosedShadowRoots(driver);
+      const callFnOn = cdpCalls.find(c => c.method === 'Runtime.callFunctionOn');
+      expect(callFnOn).toBeUndefined();
     });
 
     it('treats an undefined CDP getDocument response as no-root (early return)', async () => {
