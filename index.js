@@ -181,6 +181,14 @@ async function processFrameTree(driver, meta, depth, ancestorUrls, ctx) {
       log.debug(`Skipping iframe whose document loaded an unsupported URL: ${frameUrl}`);
       return [];
     }
+    // The element's src attribute may differ from the resolved document URL
+    // (redirects, location.replace, etc). Re-check the ancestor chain against
+    // the post-switch URL so we don't recurse into a frame whose document
+    // already appears higher in the chain.
+    if (frameUrl && ancestorUrls && ancestorUrls.has(frameUrl)) {
+      log.debug(`Skipping cyclic iframe (post-switch URL ${frameUrl} appears in ancestor chain)`);
+      return [];
+    }
 
     /* istanbul ignore next: no instrumenting injected code */
     const iframeSnapshot = await driver.executeScript(async function(opts) {
