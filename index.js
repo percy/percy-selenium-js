@@ -48,7 +48,7 @@ function clampFrameDepth(d) {
 function normalizeIgnoreSelectors(input) {
   if (!input) return [];
   if (Array.isArray(input)) return input.filter(s => typeof s === 'string' && s.length);
-  if (typeof input === 'string') return input.length ? [input] : [];
+  if (typeof input === 'string') return [input]; // `!input` above already catches empty string
   return [];
 }
 
@@ -219,6 +219,9 @@ async function processFrameTree(driver, meta, depth, ancestorUrls, ctx) {
       const currentOrigin = getOrigin(frameUrl || meta.src);
       const childrenRaw = await driver.executeScript(enumerateIframesScript, ignoreSelectors);
       const children = Array.isArray(childrenRaw) ? childrenRaw : [];
+      // captureCorsIframes always passes a Set([currentUrl]) — the `|| []`
+      // fallback only protects against internal-API callers passing nothing.
+      /* istanbul ignore next */
       const nextAncestors = new Set(ancestorUrls || []);
       nextAncestors.add(meta.src);
       if (frameUrl) nextAncestors.add(frameUrl);
@@ -296,8 +299,16 @@ async function captureCorsIframes(driver, currentUrl, options, percyDOMScript) {
       try {
         entries = await processFrameTree(driver, meta, 1, new Set([currentUrl]), ctx);
       } catch (error) {
+        // `error.percyContextLost` is always true here in practice — processFrameTree
+        // only re-throws context-lost errors from its own catch. The leading
+        // `error && ...` guard exists for forward-compat if that contract changes.
         if (error && error.percyContextLost) {
           log.debug('Aborting further nested CORS capture due to lost frame context');
+          // `error.partialCapture` always contains at least the outer frame
+          // (processFrameTree pushes itself to `collected` before recursing,
+          // and sets `error.partialCapture = collected` in its own catch), so
+          // the falsy arm of this guard is not reachable from normal flow.
+          /* istanbul ignore else */
           if (Array.isArray(error.partialCapture) && error.partialCapture.length) {
             corsIframes.push(...error.partialCapture);
           }

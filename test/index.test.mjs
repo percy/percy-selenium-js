@@ -1961,6 +1961,68 @@ describe('processFrameTree - rare error/finally branches', () => {
     expect(pids).not.toContain('sibling');
   });
 
+  it('shouldSkipIframe true branch fires inside a nested frame iteration', async () => {
+    // Drives line 226: `shouldSkipIframe(child, currentOrigin, log)` returns
+    // true → continue. We enumerate one cross-origin child + one srcdoc child
+    // inside outer; the srcdoc child must be skipped at shouldSkipIframe.
+    const pageUrl = 'https://host.example.com/';
+    const meta = (pid, src, extra = {}) => ({
+      percyElementId: pid, src, srcdoc: null,
+      dataPercyIgnore: false, matchesIgnoreSelector: false,
+      ...extra
+    });
+    let currentPid = null;
+    const switchSpies = {
+      frame: jasmine.createSpy().and.callFake((el) => { currentPid = el?.__pid; return Promise.resolve(); }),
+      defaultContent: jasmine.createSpy().and.callFake(() => { currentPid = null; return Promise.resolve(); }),
+      parentFrame: jasmine.createSpy().and.callFake(() => { currentPid = null; return Promise.resolve(); })
+    };
+    const driver = {
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve(pageUrl)),
+      findElement: jasmine.createSpy().and.callFake(async (locator) => {
+        const str = locator?.value || String(locator);
+        const m = /data-percy-element-id="([^"]+)"/.exec(str);
+        return m ? { __pid: m[1] } : null;
+      }),
+      switchTo: jasmine.createSpy().and.callFake(() => switchSpies),
+      executeScript: jasmine.createSpy().and.callFake(async (script) => {
+        if (typeof script === 'string') return undefined;
+        const body = script.toString();
+        if (body.includes('PercyDOM.serialize')) {
+          if (currentPid === null) return { domSnapshot: { html: '<html></html>', resources: [] } };
+          return { html: currentPid, resources: [] };
+        }
+        if (body.includes('document.URL')) {
+          if (currentPid === 'outer') return 'https://a.example.com/';
+          if (currentPid === 'good-child') return 'https://b.example.com/';
+          return pageUrl;
+        }
+        if (body.includes('document.querySelectorAll') && body.includes('iframe')) {
+          if (currentPid === null) return [{ ...meta('outer', 'https://a.example.com/'), index: 0 }];
+          if (currentPid === 'outer') {
+            return [
+              { ...meta('srcdoc-child', 'https://c.example.com/', { srcdoc: '<p>x</p>' }), index: 0 },
+              { ...meta('good-child', 'https://b.example.com/'), index: 1 }
+            ];
+          }
+          return [];
+        }
+        return undefined;
+      }),
+      manage: jasmine.createSpy().and.returnValue({
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      })
+    };
+    await percySnapshot(driver, 'nested shouldSkipIframe skip');
+
+    const body = await getSnapshotBody();
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+    const pids = (snap.corsIframes || []).map(c => c.iframeData.percyElementId);
+    expect(pids).toContain('outer');
+    expect(pids).toContain('good-child');
+    expect(pids).not.toContain('srcdoc-child');
+  });
+
   it('handles empty frameUrl + non-array enumerate result inside a frame', async () => {
     // Drives the four defensive fallbacks at lines 218-225 of processFrameTree:
     //   - `frameUrl || meta.src` when frameUrl is empty
@@ -2308,6 +2370,17 @@ describe('inlined helper functions', () => {
     });
   });
 
+  describe('resolveMaxFrameDepth / resolveIgnoreSelectors default-arg coverage', () => {
+    // The `options = {}` default-parameter branch is only taken when the caller
+    // passes `undefined` (not just an empty object).
+    it('resolveMaxFrameDepth falls back to default when called with no args', () => {
+      expect(internals.resolveMaxFrameDepth()).toBe(internals.DEFAULT_MAX_FRAME_DEPTH);
+    });
+    it('resolveIgnoreSelectors returns [] when called with no args', () => {
+      expect(internals.resolveIgnoreSelectors()).toEqual([]);
+    });
+  });
+
   describe('normalizeIgnoreSelectors', () => {
     it('returns empty array for falsy input', () => {
       expect(internals.normalizeIgnoreSelectors(undefined)).toEqual([]);
@@ -2345,8 +2418,16 @@ describe('inlined helper functions', () => {
     it('returns true for data-percy-ignore', () => {
       expect(internals.shouldSkipIframe({ dataPercyIgnore: true, src: 'https://cross.example.com/' }, 'https://host.example.com', baseLog)).toBeTrue();
     });
+    it('returns true for data-percy-ignore even when src is missing', () => {
+      // Drives the `meta.src || '(no src)'` no-src branch on the log line.
+      expect(internals.shouldSkipIframe({ dataPercyIgnore: true }, 'https://host.example.com', baseLog)).toBeTrue();
+    });
     it('returns true for matchesIgnoreSelector', () => {
       expect(internals.shouldSkipIframe({ matchesIgnoreSelector: true, src: 'https://cross.example.com/' }, 'https://host.example.com', baseLog)).toBeTrue();
+    });
+    it('returns true for matchesIgnoreSelector even when src is missing', () => {
+      // Same `meta.src || '(no src)'` fallback, this time on the selector path.
+      expect(internals.shouldSkipIframe({ matchesIgnoreSelector: true }, 'https://host.example.com', baseLog)).toBeTrue();
     });
     it('returns true for unsupported src', () => {
       expect(internals.shouldSkipIframe({ src: 'about:blank' }, 'https://host.example.com', baseLog)).toBeTrue();
