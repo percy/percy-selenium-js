@@ -1732,10 +1732,13 @@ describe('processFrameTree - rare error/finally branches', () => {
   });
 
   it('skips a nested iframe whose pre-switch src equals an ancestor URL', async () => {
-    // Drives the pre-switch cycle guard at lines 150-152. The top-level cycle
+    // Drives the pre-switch cycle guard at lines 154-157. The top-level cycle
     // case is already filtered out by `shouldSkipIframe(same-origin)` in
     // captureCorsIframes, so we need a *nested* frame whose src happens to
-    // match a higher-up frame URL.
+    // match a higher-up frame URL. The child's origin must differ from its
+    // immediate parent's origin (otherwise shouldSkipIframe trips same-origin
+    // skip first) — so we point the child back at the TOP page URL, which
+    // sits at the top of ancestorUrls.
     const pageUrl = 'https://host.example.com/';
     const outerSrc = 'https://a.example.com/outer';
     const meta = (pid, src) => ({
@@ -1765,16 +1768,16 @@ describe('processFrameTree - rare error/finally branches', () => {
         }
         if (body.includes('document.URL')) {
           if (currentPid === 'outer') return outerSrc;
-          // cycle child reports a *different* document URL so the post-switch
-          // guard does NOT fire; we want the pre-switch src guard to fire.
-          if (currentPid === 'cycle-child') return 'https://nowhere.example/';
           return pageUrl;
         }
         if (body.includes('document.querySelectorAll') && body.includes('iframe')) {
           if (currentPid === null) return [{ ...meta('outer', outerSrc), index: 0 }];
           if (currentPid === 'outer') {
-            // Inside outer: list a child whose src equals outer's src — pre-switch cycle.
-            return [{ ...meta('cycle-child', outerSrc), index: 0 }];
+            // Inside outer (origin a.example.com), list a child whose src equals
+            // the top page URL (origin host.example.com) — different origin so
+            // shouldSkipIframe doesn't filter it, but the pre-switch ancestor
+            // cycle guard inside processFrameTree fires.
+            return [{ ...meta('cycle-child', pageUrl), index: 0 }];
           }
           return [];
         }
@@ -1791,6 +1794,46 @@ describe('processFrameTree - rare error/finally branches', () => {
     const pids = (snap.corsIframes || []).map(c => c.iframeData.percyElementId);
     expect(pids).toContain('outer');
     expect(pids).not.toContain('cycle-child');
+  });
+
+  it('swallows errors thrown during top-level iframe enumeration', async () => {
+    // Drives the outer catch at lines 317-319 of captureCorsIframes. If the
+    // very first enumerateIframesScript executeScript throws, the whole CORS
+    // path returns []; the parent snapshot must still be posted successfully.
+    let topEnumerateCalls = 0;
+    const driver = {
+      getCapabilities: jasmine.createSpy().and.returnValue(Promise.resolve({ getBrowserName: () => 'chrome' })),
+      sendDevToolsCommand: jasmine.createSpy().and.returnValue(Promise.resolve()),
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://host.example.com/')),
+      findElement: jasmine.createSpy().and.returnValue(Promise.resolve(null)),
+      switchTo: jasmine.createSpy().and.returnValue({
+        frame: jasmine.createSpy().and.returnValue(Promise.resolve()),
+        defaultContent: jasmine.createSpy().and.returnValue(Promise.resolve())
+      }),
+      executeScript: jasmine.createSpy().and.callFake(async (script) => {
+        if (typeof script === 'string') return undefined;
+        const body = script.toString();
+        if (body.includes('PercyDOM.serialize')) {
+          return { domSnapshot: { html: '<html></html>', resources: [] } };
+        }
+        if (body.includes('document.URL')) return 'https://host.example.com/';
+        if (body.includes('document.querySelectorAll') && body.includes('iframe')) {
+          topEnumerateCalls++;
+          throw new Error('enumerate exploded');
+        }
+        return undefined;
+      }),
+      manage: jasmine.createSpy().and.returnValue({
+        window: jasmine.createSpy().and.returnValue({
+          setRect: jasmine.createSpy().and.returnValue(Promise.resolve()),
+          getRect: jasmine.createSpy().and.returnValue(Promise.resolve({ width: 1024, height: 768 }))
+        }),
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      }),
+      wait: jasmine.createSpy().and.returnValue(Promise.resolve())
+    };
+    await expectAsync(percySnapshot(driver, 'enumerate-throws')).not.toBeRejected();
+    expect(topEnumerateCalls).toBeGreaterThanOrEqual(1);
   });
 
   it('returns [] when findElement cannot locate the iframe by percyElementId', async () => {
@@ -2068,6 +2111,12 @@ describe('inlined helper functions', () => {
     it('filters non-string values from array input', () => {
       expect(internals.normalizeIgnoreSelectors(['.ad', null, 42, 'foo'])).toEqual(['.ad', 'foo']);
     });
+
+    it('returns empty array for truthy non-string non-array values', () => {
+      // Hits the final `return []` for shapes like numbers or objects.
+      expect(internals.normalizeIgnoreSelectors(42)).toEqual([]);
+      expect(internals.normalizeIgnoreSelectors({})).toEqual([]);
+    });
   });
 
   describe('getOrigin', () => {
@@ -2096,6 +2145,14 @@ describe('inlined helper functions', () => {
     });
     it('returns true when percyElementId is missing', () => {
       expect(internals.shouldSkipIframe({ src: 'https://cross.example.com/' }, 'https://host.example.com', baseLog)).toBeTrue();
+    });
+    it('returns true for srcdoc iframes (inline content already in parent DOM)', () => {
+      expect(internals.shouldSkipIframe({ src: 'https://cross.example.com/', srcdoc: '<p>x</p>', index: 0 }, 'https://host.example.com', baseLog)).toBeTrue();
+    });
+    it('returns true when getOrigin returns null (invalid URL)', () => {
+      // src that passes isUnsupportedIframeSrc (not a known scheme) but URL ctor fails.
+      // Empty-host URLs like `https://` parse but yield no origin.
+      expect(internals.shouldSkipIframe({ src: 'not a url at all' }, 'https://host.example.com', baseLog)).toBeTrue();
     });
     it('returns false for valid cross-origin iframe with pid', () => {
       expect(internals.shouldSkipIframe({ src: 'https://cross.example.com/', percyElementId: 'p1' }, 'https://host.example.com', baseLog)).toBeFalse();
