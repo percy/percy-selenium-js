@@ -112,7 +112,9 @@ function shouldSkipIframe(meta, currentOrigin, logger) {
 /* eslint-disable no-undef */
 // In-browser script — must be self-contained. Returns metadata for every
 // iframe in the current document. Called both at top-level and inside each
-// frame after switching context.
+// frame after switching context. Executed by Selenium in the browser, never
+// in Node, so nyc cannot instrument it.
+/* istanbul ignore next: browser-executed code */
 function enumerateIframesScript(selectors) {
   const iframes = document.querySelectorAll('iframe');
   const result = [];
@@ -143,6 +145,8 @@ function enumerateIframesScript(selectors) {
 async function processFrameTree(driver, meta, depth, ancestorUrls, ctx) {
   const { maxFrameDepth, ignoreSelectors, options, percyDOMScript } = ctx;
 
+  /* istanbul ignore if: defensive guard — the caller's `depth < maxFrameDepth`
+     check at line 214 prevents this from being reachable in practice. */
   if (depth > maxFrameDepth) {
     log.debug(`Reached max iframe nesting depth (${maxFrameDepth}); stopping at ${meta.src}`);
     return [];
@@ -299,6 +303,10 @@ async function captureCorsIframes(driver, currentUrl, options, percyDOMScript) {
           }
           break;
         }
+        /* istanbul ignore next: defensive — processFrameTree only re-throws
+           when error.percyContextLost is true; all other errors are caught and
+           returned inside its own catch. This rethrow exists for forward
+           compatibility if that contract ever changes. */
         throw error;
       }
       if (entries && entries.length) corsIframes.push(...entries);

@@ -1731,6 +1731,129 @@ describe('processFrameTree - rare error/finally branches', () => {
     expect(switchSpies.defaultContent.calls.count()).toBeGreaterThanOrEqual(2);
   });
 
+  it('skips a nested iframe whose pre-switch src equals an ancestor URL', async () => {
+    // Drives the pre-switch cycle guard at lines 150-152. The top-level cycle
+    // case is already filtered out by `shouldSkipIframe(same-origin)` in
+    // captureCorsIframes, so we need a *nested* frame whose src happens to
+    // match a higher-up frame URL.
+    const pageUrl = 'https://host.example.com/';
+    const outerSrc = 'https://a.example.com/outer';
+    const meta = (pid, src) => ({
+      percyElementId: pid, src, srcdoc: null,
+      dataPercyIgnore: false, matchesIgnoreSelector: false
+    });
+    let currentPid = null;
+    const switchSpies = {
+      frame: jasmine.createSpy('frame').and.callFake((el) => { currentPid = el?.__pid; return Promise.resolve(); }),
+      defaultContent: jasmine.createSpy('defaultContent').and.callFake(() => { currentPid = null; return Promise.resolve(); }),
+      parentFrame: jasmine.createSpy('parentFrame').and.callFake(() => { currentPid = null; return Promise.resolve(); })
+    };
+    const driver = {
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve(pageUrl)),
+      findElement: jasmine.createSpy().and.callFake(async (locator) => {
+        const str = locator?.value || String(locator);
+        const m = /data-percy-element-id="([^"]+)"/.exec(str);
+        return m ? { __pid: m[1] } : null;
+      }),
+      switchTo: jasmine.createSpy().and.callFake(() => switchSpies),
+      executeScript: jasmine.createSpy().and.callFake(async (script) => {
+        if (typeof script === 'string') return undefined;
+        const body = script.toString();
+        if (body.includes('PercyDOM.serialize')) {
+          if (currentPid === null) return { domSnapshot: { html: '<html></html>', resources: [] } };
+          return { html: currentPid, resources: [] };
+        }
+        if (body.includes('document.URL')) {
+          if (currentPid === 'outer') return outerSrc;
+          // cycle child reports a *different* document URL so the post-switch
+          // guard does NOT fire; we want the pre-switch src guard to fire.
+          if (currentPid === 'cycle-child') return 'https://nowhere.example/';
+          return pageUrl;
+        }
+        if (body.includes('document.querySelectorAll') && body.includes('iframe')) {
+          if (currentPid === null) return [{ ...meta('outer', outerSrc), index: 0 }];
+          if (currentPid === 'outer') {
+            // Inside outer: list a child whose src equals outer's src — pre-switch cycle.
+            return [{ ...meta('cycle-child', outerSrc), index: 0 }];
+          }
+          return [];
+        }
+        return undefined;
+      }),
+      manage: jasmine.createSpy().and.returnValue({
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      })
+    };
+    await percySnapshot(driver, 'pre-switch cycle');
+
+    const body = await getSnapshotBody();
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+    const pids = (snap.corsIframes || []).map(c => c.iframeData.percyElementId);
+    expect(pids).toContain('outer');
+    expect(pids).not.toContain('cycle-child');
+  });
+
+  it('returns [] when findElement cannot locate the iframe by percyElementId', async () => {
+    // Drives lines 166-167: findElement resolves to a falsy value, processFrameTree
+    // logs and returns []. The outer captureCorsIframes loop must continue with the
+    // next top-level meta (so we use two metas to assert the second one is handled).
+    const pageUrl = 'https://host.example.com/';
+    const meta = (pid, src) => ({
+      percyElementId: pid, src, srcdoc: null,
+      dataPercyIgnore: false, matchesIgnoreSelector: false
+    });
+    let currentPid = null;
+    const switchSpies = {
+      frame: jasmine.createSpy('frame').and.callFake((el) => { currentPid = el?.__pid; return Promise.resolve(); }),
+      defaultContent: jasmine.createSpy('defaultContent').and.callFake(() => { currentPid = null; return Promise.resolve(); }),
+      parentFrame: jasmine.createSpy('parentFrame').and.callFake(() => { currentPid = null; return Promise.resolve(); })
+    };
+    const driver = {
+      getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve(pageUrl)),
+      // findElement returns null for 'missing-pid', a fake element for 'present-pid'
+      findElement: jasmine.createSpy().and.callFake(async (locator) => {
+        const str = locator?.value || String(locator);
+        const m = /data-percy-element-id="([^"]+)"/.exec(str);
+        if (!m) return null;
+        if (m[1] === 'missing-pid') return null;
+        return { __pid: m[1] };
+      }),
+      switchTo: jasmine.createSpy().and.callFake(() => switchSpies),
+      executeScript: jasmine.createSpy().and.callFake(async (script) => {
+        if (typeof script === 'string') return undefined;
+        const body = script.toString();
+        if (body.includes('PercyDOM.serialize')) {
+          if (currentPid === null) return { domSnapshot: { html: '<html></html>', resources: [] } };
+          return { html: currentPid, resources: [] };
+        }
+        if (body.includes('document.URL')) {
+          if (currentPid === 'present-pid') return 'https://b.example.com/';
+          return pageUrl;
+        }
+        if (body.includes('document.querySelectorAll') && body.includes('iframe')) {
+          if (currentPid === null) {
+            return [
+              { ...meta('missing-pid', 'https://a.example.com/'), index: 0 },
+              { ...meta('present-pid', 'https://b.example.com/'), index: 1 }
+            ];
+          }
+          return [];
+        }
+        return undefined;
+      }),
+      manage: jasmine.createSpy().and.returnValue({
+        getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+      })
+    };
+    await percySnapshot(driver, 'findElement returns null');
+
+    const body = await getSnapshotBody();
+    const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+    const pids = (snap.corsIframes || []).map(c => c.iframeData.percyElementId);
+    expect(pids).not.toContain('missing-pid');
+    expect(pids).toContain('present-pid');
+  });
+
   it('re-throws percyContextLost when parentFrame fails at depth > 1', async () => {
     // Drives lines 254-263: parentFrame throws at depth>1 → defaultContent
     // recovery attempted, percyContextLost wrapped and re-thrown. The OUTER
