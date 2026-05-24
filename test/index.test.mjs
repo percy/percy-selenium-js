@@ -235,7 +235,16 @@ describe('percySnapshot', () => {
     mockedDriver.executeScript.calls.reset();
     await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
 
-    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(3);
+    // Expected 5 executeScript calls on the responsive min-height path (was 3
+    // before the CORS iframe + closed-shadow-DOM work landed):
+    //   1. inject PercyDOM (percySnapshot)
+    //   2. PercyDOM.waitForResize() (captureResponsiveDOM)
+    //   3. PercyDOM.serialize(options) (captureSerializedDOM)
+    //   4. enumerateIframesScript (captureCorsIframes)
+    //   5. document.URL fetch (currentURL)
+    // exposeClosedShadowRoots adds 0 executeScript calls here because the
+    // mocked sendDevToolsCommand returns Promise.resolve() (no `root`).
+    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(5);
     expect(mockedScroll).toHaveBeenCalledWith(mockedDriver);
     delete process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL;
     delete process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT;
@@ -1995,6 +2004,67 @@ describe('exposeClosedShadowRoots via CDP', () => {
         .not.toBeRejected();
       const calls = driver.sendAndGetDevToolsCommand.calls.allArgs().map(a => a[0]);
       expect(calls).not.toContain('Runtime.callFunctionOn');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Gate: exposeClosedShadowRoots must NOT run when the snapshot is going to
+  // be serialized later by the CLI (deferUploads). Running CDP at this point
+  // both wastes I/O and writes window.__percyClosedShadowRoots onto a page the
+  // SDK isn't about to upload — observable side effect on the user's app.
+  // --------------------------------------------------------------------------
+  describe('deferUploads gate around exposeClosedShadowRoots', () => {
+    const { isClosedShadowRootsExposureSkipped } = percySnapshot._internals;
+
+    it('skips exposure when options.deferUploads === true', () => {
+      expect(isClosedShadowRootsExposureSkipped({ deferUploads: true })).toBe(true);
+    });
+
+    it('skips exposure when percy.config.percy.deferUploads is truthy', () => {
+      utils.percy.config = { percy: { deferUploads: true } };
+      expect(isClosedShadowRootsExposureSkipped()).toBe(true);
+      expect(isClosedShadowRootsExposureSkipped({})).toBe(true);
+    });
+
+    it('does NOT skip exposure when deferUploads is unset everywhere', () => {
+      utils.percy.config = {};
+      expect(isClosedShadowRootsExposureSkipped()).toBe(false);
+      expect(isClosedShadowRootsExposureSkipped({})).toBe(false);
+      expect(isClosedShadowRootsExposureSkipped({ deferUploads: false })).toBe(false);
+    });
+
+    it('does not invoke any CDP transport inside captureSerializedDOM when deferUploads is set', async () => {
+      // End-to-end check: full percySnapshot with deferUploads must not call
+      // sendDevToolsCommand at all (responsive path is already gated; serialized
+      // path must be gated too — that is what THIS PR introduces).
+      spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+      utils.percy.type = 'web';
+      utils.percy.config = { percy: { deferUploads: true } };
+
+      const driver = {
+        getCapabilities: jasmine.createSpy().and.returnValue(Promise.resolve({ getBrowserName: () => 'chrome' })),
+        sendDevToolsCommand: jasmine.createSpy('sendDevToolsCommand').and.returnValue(Promise.resolve()),
+        sendAndGetDevToolsCommand: jasmine.createSpy('sendAndGetDevToolsCommand').and.returnValue(Promise.resolve()),
+        getCurrentUrl: jasmine.createSpy().and.returnValue(Promise.resolve('https://example.com/')),
+        findElements: jasmine.createSpy().and.returnValue(Promise.resolve([])),
+        navigate: jasmine.createSpy().and.returnValue({ refresh: jasmine.createSpy().and.returnValue(Promise.resolve()) }),
+        manage: jasmine.createSpy().and.returnValue({
+          window: jasmine.createSpy().and.returnValue({
+            setRect: jasmine.createSpy().and.returnValue(Promise.resolve()),
+            getRect: jasmine.createSpy().and.returnValue(Promise.resolve({ width: 1024, height: 768 }))
+          }),
+          getCookies: jasmine.createSpy().and.returnValue(Promise.resolve([]))
+        }),
+        executeScript: jasmine.createSpy('executeScript').and.returnValue(
+          Promise.resolve({ domSnapshot: { html: '<html></html>', resources: [] } })
+        ),
+        wait: jasmine.createSpy().and.returnValue(Promise.resolve())
+      };
+
+      await percySnapshot(driver, 'deferred snapshot', { responsiveSnapshotCapture: true });
+
+      expect(driver.sendDevToolsCommand).not.toHaveBeenCalled();
+      expect(driver.sendAndGetDevToolsCommand).not.toHaveBeenCalled();
     });
   });
 });

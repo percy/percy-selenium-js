@@ -486,7 +486,14 @@ async function captureSerializedDOM(driver, options) {
 
   // Expose closed shadow roots via CDP (Chromium only) before serialization so
   // PercyDOM.serialize can find them in window.__percyClosedShadowRoots.
-  await exposeClosedShadowRoots(driver);
+  //
+  // Skip when the snapshot won't be serialized locally — `deferUploads` defers
+  // all DOM work to the CLI's later snapshot phase. Running CDP here would be
+  // wasted I/O and (more importantly) mutates page state on a snapshot the SDK
+  // does not actually upload. Mirrors `isResponsiveDOMCaptureValid`'s gating.
+  if (!isClosedShadowRootsExposureSkipped(options)) {
+    await exposeClosedShadowRoots(driver);
+  }
 
   /* istanbul ignore next */
   let { domSnapshot } = await driver.executeScript(async (options) => ({
@@ -537,6 +544,19 @@ function isResponsiveDOMCaptureValid(options) {
     utils.percy?.config?.snapshot?.responsiveSnapshotCapture ||
     false
   );
+}
+
+// Closed-shadow-root exposure runs CDP commands that walk the live DOM and
+// mutate `window.__percyClosedShadowRoots`. When `deferUploads` is true the
+// CLI serializes the DOM later from its own context — running this here is
+// both wasted work and an unwanted side effect on the page. Skip in that case.
+// Options-level `deferUploads` is honoured first so callers can override the
+// global config per-snapshot, matching the existing options-then-config order
+// used elsewhere in this file.
+function isClosedShadowRootsExposureSkipped(options) {
+  if (options?.deferUploads === true) return true;
+  if (utils.percy?.config?.percy?.deferUploads) return true;
+  return false;
 }
 
 async function captureDOM(driver, options = {}) {
@@ -779,5 +799,6 @@ module.exports._internals = {
   processFrameTree,
   captureCorsIframes,
   exposeClosedShadowRoots,
+  isClosedShadowRootsExposureSkipped,
   DEFAULT_MAX_FRAME_DEPTH
 };
