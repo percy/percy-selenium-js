@@ -1884,4 +1884,201 @@ describe('exposeClosedShadowRoots via CDP', () => {
     const calls = driver.sendDevToolsCommand.calls.allArgs().map(args => args[0]);
     expect(calls).not.toContain('Runtime.callFunctionOn');
   });
+
+  // ----------------------------------------------------------------------------
+  // Regression: ternary-around-await precedence bug.
+  //
+  // The original code was:
+  //   const { root } = await driver.sendAndGetDevToolsCommand
+  //     ? await driver.sendAndGetDevToolsCommand(...)
+  //     : await driver.sendDevToolsCommand(...) || {};
+  //
+  // `await` binds tighter than `? :`, so this resolved the *function reference*
+  // (truthy), picked the first branch — but its promise was never awaited.
+  // Destructuring an unresolved Promise yields `root === undefined`, the
+  // early-return triggered, and closed shadow DOM was never captured.
+  //
+  // The fixed form must produce a real `root` for both driver shapes.
+  // ----------------------------------------------------------------------------
+  describe('CDP command-shape regression (BLOCKER)', () => {
+    const fakeRoot = {
+      backendNodeId: 1,
+      children: [
+        {
+          backendNodeId: 2,
+          shadowRoots: [{ shadowRootType: 'closed', backendNodeId: 3 }]
+        }
+      ]
+    };
+
+    it('parses root and exposes closed roots when only sendDevToolsCommand is available', async () => {
+      const cdpCalls = [];
+      const driver = {
+        sendDevToolsCommand: jasmine.createSpy().and.callFake((method, params) => {
+          cdpCalls.push({ method, params });
+          if (method === 'DOM.getDocument') return Promise.resolve({ root: fakeRoot });
+          if (method === 'DOM.resolveNode') {
+            return Promise.resolve({ object: { objectId: `obj-${params.backendNodeId}` } });
+          }
+          return Promise.resolve();
+        }),
+        executeScript: jasmine.createSpy().and.returnValue(Promise.resolve())
+      };
+
+      await percySnapshot._internals.exposeClosedShadowRoots(driver);
+
+      const callFnOn = cdpCalls.find(c => c.method === 'Runtime.callFunctionOn');
+      expect(callFnOn).toBeDefined();
+      expect(callFnOn.params.objectId).toBe('obj-2');
+      expect(callFnOn.params.arguments[0].objectId).toBe('obj-3');
+    });
+
+    it('parses root and exposes closed roots when only sendAndGetDevToolsCommand is available', async () => {
+      const cdpCalls = [];
+      const driver = {
+        sendAndGetDevToolsCommand: jasmine.createSpy().and.callFake((method, params) => {
+          cdpCalls.push({ method, params });
+          if (method === 'DOM.getDocument') return Promise.resolve({ root: fakeRoot });
+          if (method === 'DOM.resolveNode') {
+            return Promise.resolve({ object: { objectId: `obj-${params.backendNodeId}` } });
+          }
+          return Promise.resolve();
+        }),
+        executeScript: jasmine.createSpy().and.returnValue(Promise.resolve())
+      };
+
+      await percySnapshot._internals.exposeClosedShadowRoots(driver);
+
+      const callFnOn = cdpCalls.find(c => c.method === 'Runtime.callFunctionOn');
+      expect(callFnOn).toBeDefined();
+      // The selected CDP function MUST be sendAndGetDevToolsCommand
+      expect(driver.sendAndGetDevToolsCommand).toHaveBeenCalled();
+      expect(callFnOn.params.objectId).toBe('obj-2');
+      expect(callFnOn.params.arguments[0].objectId).toBe('obj-3');
+    });
+
+    it('prefers sendAndGetDevToolsCommand when both are present', async () => {
+      const driver = {
+        sendAndGetDevToolsCommand: jasmine.createSpy('sendAndGet').and.callFake((method, params) => {
+          if (method === 'DOM.getDocument') return Promise.resolve({ root: fakeRoot });
+          if (method === 'DOM.resolveNode') {
+            return Promise.resolve({ object: { objectId: `obj-${params.backendNodeId}` } });
+          }
+          return Promise.resolve();
+        }),
+        sendDevToolsCommand: jasmine.createSpy('sendOnly').and.returnValue(Promise.resolve()),
+        executeScript: jasmine.createSpy().and.returnValue(Promise.resolve())
+      };
+
+      await percySnapshot._internals.exposeClosedShadowRoots(driver);
+
+      // sendAndGetDevToolsCommand should be the only CDP transport invoked
+      expect(driver.sendAndGetDevToolsCommand).toHaveBeenCalled();
+      expect(driver.sendDevToolsCommand).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when neither CDP function is present', async () => {
+      const driver = { /* no CDP at all */ };
+      await expectAsync(percySnapshot._internals.exposeClosedShadowRoots(driver))
+        .not.toBeRejected();
+    });
+
+    it('treats an undefined CDP getDocument response as no-root (early return)', async () => {
+      const driver = {
+        sendAndGetDevToolsCommand: jasmine.createSpy().and.callFake((method) => {
+          if (method === 'DOM.getDocument') return Promise.resolve(undefined);
+          return Promise.resolve();
+        }),
+        executeScript: jasmine.createSpy().and.returnValue(Promise.resolve())
+      };
+      await expectAsync(percySnapshot._internals.exposeClosedShadowRoots(driver))
+        .not.toBeRejected();
+      const calls = driver.sendAndGetDevToolsCommand.calls.allArgs().map(a => a[0]);
+      expect(calls).not.toContain('Runtime.callFunctionOn');
+    });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Cycle-guard check using the resolved post-switch document URL — not just the
+// element's pre-switch src attribute. A redirect inside the iframe can land on
+// a URL that already appears higher in the ancestor chain.
+// ----------------------------------------------------------------------------
+describe('processFrameTree - post-switch URL cycle guard', () => {
+  beforeEach(async () => {
+    await helpers.setupTest();
+    spyOn(percySnapshot, 'isPercyEnabled').and.returnValue(Promise.resolve(true));
+    utils.percy.type = 'web';
+    utils.percy.config = {};
+  });
+
+  it('skips a child frame whose document URL equals the top page (post-switch)', async () => {
+    const pageUrl = 'https://host.example.com/';
+    // The child iframe advertises src=https://other.example.com/x but after
+    // we switch in, document.URL resolves to the top page URL (e.g. via a
+    // server-side redirect chain). The guard must catch this cycle.
+    const driver = buildIframeDriver({
+      pageUrl,
+      topIframes: [{
+        percyElementId: 'pid-cycle',
+        src: 'https://other.example.com/x',
+        srcdoc: null,
+        dataPercyIgnore: false,
+        matchesIgnoreSelector: false
+      }],
+      frameDocumentUrlByPid: { 'pid-cycle': pageUrl }
+    });
+
+    const calls = [];
+    const origExec = driver.executeScript;
+    driver.executeScript = jasmine.createSpy('executeScript').and.callFake(async (script, arg) => {
+      if (typeof script === 'function' && script.toString().includes('PercyDOM.serialize')) {
+        calls.push({ pid: 'serialize' });
+      }
+      return origExec(script, arg);
+    });
+
+    await percySnapshot(driver, 'cycle-by-post-switch-url');
+
+    // The cycle guard must run AFTER we switched into the frame and read
+    // document.URL — so frame switch happens, but no serialize is performed
+    // for the inner frame.
+    expect(driver._switchSpies.frame).toHaveBeenCalled();
+    // Top-level page serialize happens once. The cycle-guarded frame must NOT
+    // contribute a second serialize.
+    expect(calls.length).toBe(1);
+    // We must restore to defaultContent regardless
+    expect(driver._switchSpies.defaultContent).toHaveBeenCalled();
+  });
+
+  it('skips a nested frame whose document URL equals its parent frame (post-switch)', async () => {
+    const pageUrl = 'https://host.example.com/';
+    const parentSrc = 'https://parent.example.com/frame';
+    const driver = buildIframeDriver({
+      pageUrl,
+      topIframes: [{
+        percyElementId: 'pid-parent',
+        src: parentSrc,
+        srcdoc: null,
+        dataPercyIgnore: false,
+        matchesIgnoreSelector: false
+      }],
+      nestedIframes: {
+        'pid-parent': [{
+          percyElementId: 'pid-child',
+          src: 'https://child.example.com/frame',
+          srcdoc: null,
+          dataPercyIgnore: false,
+          matchesIgnoreSelector: false
+        }]
+      },
+      // Child frame resolves back to its parent URL after switch — cycle
+      frameDocumentUrlByPid: {
+        'pid-parent': parentSrc,
+        'pid-child': parentSrc
+      }
+    });
+
+    await expectAsync(percySnapshot(driver, 'nested-cycle')).not.toBeRejected();
+  });
 });
