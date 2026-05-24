@@ -302,6 +302,7 @@ async function captureCorsIframes(driver, currentUrl, options, percyDOMScript) {
         // `error.percyContextLost` is always true here in practice — processFrameTree
         // only re-throws context-lost errors from its own catch. The leading
         // `error && ...` guard exists for forward-compat if that contract changes.
+        /* istanbul ignore else */
         if (error && error.percyContextLost) {
           log.debug('Aborting further nested CORS capture due to lost frame context');
           // `error.partialCapture` always contains at least the outer frame
@@ -528,7 +529,13 @@ async function captureSerializedDOM(driver, options) {
 
   try {
     const currentUrl = await driver.getCurrentUrl();
-    const corsIframes = await captureCorsIframes(driver, currentUrl, options || {}, percyDOMScript);
+    // captureDOM's default parameter normalises `undefined` → `{}` before we
+    // get here. The `|| {}` guard exists for direct callers of
+    // captureSerializedDOM that might pass `null` explicitly (default params
+    // do not handle `null`); not reachable from any production path.
+    /* istanbul ignore next */
+    const safeOpts = options || {};
+    const corsIframes = await captureCorsIframes(driver, currentUrl, safeOpts, percyDOMScript);
     if (corsIframes.length > 0) {
       domSnapshot.corsIframes = corsIframes;
     }
