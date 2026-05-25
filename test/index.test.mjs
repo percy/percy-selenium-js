@@ -1605,7 +1605,7 @@ describe('corsIframes population in captureSerializedDOM', () => {
     expect(entry.iframeSnapshot.resources).toContain(frameResource);
   });
 
-  describe('readiness gate (PER-7348)', () => {
+  describe('readiness gate', () => {
     // This describe block is nested under `corsIframes population in
     // captureSerializedDOM`, which does not declare a `driver` at its
     // scope — the percySnapshot suite at the top of the file does, but
