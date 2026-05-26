@@ -501,8 +501,18 @@ async function captureResponsiveDOM(driver, options) {
 }
 
 async function captureSerializedDOM(driver, options) {
+  const log = utils.logger('selenium');
   // Fetch the script once at the start of serialization
   const percyDOMScript = await utils.fetchPercyDOM();
+
+  // Readiness gate. All orchestration lives in @percy/sdk-utils
+  // (disabled-check + shallow-merge config + callback-mode script generation
+  // + try/catch). The package.json floor pins runReadinessGate to be present.
+  const readinessDiagnostics = await utils.runReadinessGate(
+    (script) => driver.executeAsyncScript(script),
+    options,
+    { callback: true, log }
+  );
 
   // Expose closed shadow roots via CDP (Chromium only) before serialization so
   // PercyDOM.serialize can find them in window.__percyClosedShadowRoots.
@@ -526,6 +536,11 @@ async function captureSerializedDOM(driver, options) {
   });
 
   if (!domSnapshot) domSnapshot = {};
+
+  // Attach readiness diagnostics so the CLI can log timing and pass/fail
+  if (readinessDiagnostics && typeof domSnapshot === 'object') {
+    domSnapshot.readiness_diagnostics = readinessDiagnostics;
+  }
 
   try {
     const currentUrl = await driver.getCurrentUrl();

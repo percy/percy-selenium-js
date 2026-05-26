@@ -7,6 +7,29 @@ import utils from '@percy/sdk-utils';
 import { Cache } from '../cache.js';
 const { percyScreenshot, slowScrollToBottom, createRegion } = percySnapshot;
 
+// Forward-compat shim: `utils.runReadinessGate` is the orchestrator added
+// in @percy/sdk-utils 1.31.15. Until that version is published, polyfill
+// it here so tests exercise the real call shape instead of being skipped
+// by the SDK's typeof guard. Once 1.31.15 lands, this becomes a no-op.
+if (typeof utils.runReadinessGate !== 'function') {
+  utils.runReadinessGate = async function runReadinessGate(evalScript, snapshotOptions = {}, { callback = false, log } = {}) {
+    if (typeof utils.isReadinessDisabled === 'function' && utils.isReadinessDisabled(snapshotOptions)) return null;
+    const config = typeof utils.getReadinessConfig === 'function'
+      ? utils.getReadinessConfig(snapshotOptions)
+      : { ...(utils.percy?.config?.snapshot?.readiness || {}), ...(snapshotOptions?.readiness || {}) };
+    const script = typeof utils.waitForReadyScript === 'function'
+      ? utils.waitForReadyScript(config, { callback })
+      : null;
+    if (!script) return null;
+    try {
+      return await evalScript(script);
+    } catch (err) {
+      log?.debug?.(`waitForReady failed, proceeding to serialize: ${err?.message || err}`);
+      return null;
+    }
+  };
+}
+
 describe('percySnapshot', () => {
   let driver;
   let mockedDriver;
@@ -1488,6 +1511,114 @@ describe('corsIframes population in captureSerializedDOM', () => {
     expect(entry.iframeData).toEqual({ percyElementId: pid });
     expect(entry.iframeSnapshot.html).toContain('frame body');
     expect(entry.iframeSnapshot.resources).toContain(frameResource);
+  });
+
+  describe('readiness gate', () => {
+    // This describe block is nested under `corsIframes population in
+    // captureSerializedDOM`, which does not declare a `driver` at its
+    // scope — the percySnapshot suite at the top of the file does, but
+    // not this one. Construct a minimal mock driver per-test so the
+    // spyOn(driver, …) calls below have something to attach to.
+    let driver;
+    beforeEach(() => {
+      driver = {
+        getCurrentUrl: jasmine.createSpy('getCurrentUrl').and.returnValue(Promise.resolve('https://example.com/')),
+        findElements: jasmine.createSpy('findElements').and.returnValue(Promise.resolve([])),
+        switchTo: jasmine.createSpy('switchTo').and.returnValue({
+          frame: jasmine.createSpy('frame').and.returnValue(Promise.resolve()),
+          defaultContent: jasmine.createSpy('defaultContent').and.returnValue(Promise.resolve())
+        }),
+        executeScript: jasmine.createSpy('executeScript').and.returnValue(Promise.resolve()),
+        executeAsyncScript: jasmine.createSpy('executeAsyncScript').and.returnValue(Promise.resolve()),
+        manage: jasmine.createSpy('manage').and.returnValue({
+          getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve([]))
+        })
+      };
+    });
+
+    it('calls executeAsyncScript with waitForReady before serialize', async () => {
+      const asyncSpy = spyOn(driver, 'executeAsyncScript').and.returnValue(
+        Promise.resolve({ ok: true, timed_out: false })
+      );
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] },
+        url: 'http://localhost/'
+      }));
+
+      await percySnapshot(driver, 'readiness-happy-path');
+
+      expect(asyncSpy).toHaveBeenCalled();
+      const firstCall = asyncSpy.calls.first();
+      // sdk-utils.waitForReadyScript({ callback: true }) emits a STRING using
+      // `arguments[arguments.length - 1]` for the executeAsync done callback.
+      expect(typeof firstCall.args[0]).toBe('string');
+      expect(firstCall.args[0]).toContain('PercyDOM.waitForReady');
+      expect(firstCall.args[0]).toContain('arguments[arguments.length - 1]');
+    });
+
+    it('inlines per-snapshot readiness config as JSON into the script', async () => {
+      const asyncSpy = spyOn(driver, 'executeAsyncScript').and.returnValue(
+        Promise.resolve(null)
+      );
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] },
+        url: 'http://localhost/'
+      }));
+      const readiness = { preset: 'strict', stabilityWindowMs: 500 };
+
+      await percySnapshot(driver, 'readiness-config', { readiness });
+
+      const call = asyncSpy.calls.first();
+      expect(call).toBeTruthy();
+      // sdk-utils inlines the config via JSON.stringify rather than passing
+      // it as a separate driver.executeAsyncScript argument.
+      expect(call.args[0]).toContain('"preset":"strict"');
+      expect(call.args[0]).toContain('"stabilityWindowMs":500');
+    });
+
+    it('skips executeAsyncScript when preset is disabled', async () => {
+      const asyncSpy = spyOn(driver, 'executeAsyncScript').and.returnValue(Promise.resolve());
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] },
+        url: 'http://localhost/'
+      }));
+
+      await percySnapshot(driver, 'readiness-disabled', { readiness: { preset: 'disabled' } });
+
+      expect(asyncSpy).not.toHaveBeenCalled();
+    });
+
+    it('still serializes when executeAsyncScript rejects', async () => {
+      // Use callFake so the rejected promise is only created when the SDK
+      // awaits it (avoids an unhandled-rejection in the test-setup tick).
+      spyOn(driver, 'executeAsyncScript').and.callFake(() => Promise.reject(new Error('readiness boom')));
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] },
+        url: 'http://localhost/'
+      }));
+
+      await percySnapshot(driver, 'readiness-reject');
+
+      expect(helpers.logger.stderr).not.toEqual(jasmine.arrayContaining([
+        '[percy] Could not take DOM snapshot "readiness-reject"'
+      ]));
+    });
+
+    it('still serializes when executeAsyncScript rejects with a non-Error', async () => {
+      // Covers the `err?.message || err` second branch in the .catch handler:
+      // rejection value has no `.message`, so logging falls through to err itself.
+      spyOn(driver, 'executeAsyncScript').and.callFake(() => Promise.reject('plain-string-rejection'));
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] },
+        url: 'http://localhost/'
+      }));
+
+      await percySnapshot(driver, 'readiness-reject-string');
+
+      expect(helpers.logger.stderr).not.toEqual(jasmine.arrayContaining([
+        '[percy] Could not take DOM snapshot "readiness-reject-string"'
+      ]));
+    });
   });
 });
 
