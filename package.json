@@ -34,7 +34,9 @@
     "node-request-interceptor": "^0.6.3"
   },
   "resolutions": {
-    "image-size": "~1.0.2"
+    "image-size": "~1.0.2",
+    "snyk-nodejs-lockfile-parser": "1.59.0",
+    "node-releases": "2.0.19"
   },
   "devDependencies": {
     "@percy/cli": "^1.32.0",
