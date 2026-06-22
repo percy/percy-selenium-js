@@ -166,8 +166,15 @@ async function processFrameTree(driver, meta, depth, ancestorUrls, ctx) {
   try {
     log.debug(`Processing cross-origin iframe (depth ${depth}): ${meta.src}`);
 
+    // Escape the id before interpolating it into the CSS selector. The id is
+    // normally an internally-generated PercyDOM value, but a malicious page
+    // could set its own data-percy-element-id containing a `"` to break out of
+    // the attribute selector. Mirrors percy-nightwatch's `safeId` hardening
+    // (CSS.escape is unavailable in this Node context, so use the quote/
+    // backslash fallback).
+    const safeId = String(meta.percyElementId).replace(/["\\]/g, '\\$&');
     const frameElement = await driver.findElement(
-      By.css(`iframe[data-percy-element-id="${meta.percyElementId}"]`)
+      By.css(`iframe[data-percy-element-id="${safeId}"]`)
     );
     if (!frameElement) {
       log.debug(`Could not find iframe with data-percy-element-id="${meta.percyElementId}"`);

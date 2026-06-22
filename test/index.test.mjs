@@ -2518,6 +2518,35 @@ describe('inlined helper functions', () => {
     });
   });
 
+  describe('processFrameTree selector escaping', () => {
+    it('escapes quotes/backslashes in percyElementId before building the CSS selector', async () => {
+      // A malicious page could set data-percy-element-id to a value containing a
+      // double-quote to break out of the attribute selector. The escaped value
+      // must keep the selector well-formed.
+      const maliciousPid = 'x"] , iframe[data-evil="\\1';
+      const findElement = jasmine.createSpy('findElement').and.returnValue(Promise.resolve(null));
+      const driver = { findElement };
+
+      await internals.processFrameTree(
+        driver,
+        { src: 'https://cross.example.com/', percyElementId: maliciousPid },
+        1,
+        new Set(['https://host.example.com/']),
+        { maxFrameDepth: 10, ignoreSelectors: [], options: {}, percyDOMScript: 'noop' }
+      );
+
+      expect(findElement).toHaveBeenCalled();
+      const locator = findElement.calls.mostRecent().args[0];
+      const selector = locator?.value || String(locator);
+      // Both the quote and the backslash from the pid must be backslash-escaped.
+      expect(selector).toContain('x\\"]');
+      expect(selector).toContain('\\\\1');
+      // The selector must remain a single attribute selector (no premature close
+      // of the data-percy-element-id attribute value).
+      expect((selector.match(/data-percy-element-id=/g) || []).length).toBe(1);
+    });
+  });
+
   describe('resolveMaxFrameDepth / resolveIgnoreSelectors default-arg coverage', () => {
     // The `options = {}` default-parameter branch is only taken when the caller
     // passes `undefined` (not just an empty object).
