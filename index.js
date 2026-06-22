@@ -20,28 +20,31 @@ const SCROLL_DEFAULT_SLEEP_TIME = 0.45; // 450ms
 // Inlined helpers — these mirror percy-nightwatch/lib/snapshot.js. Once
 // @percy/sdk-utils publishes shared versions we can delete these.
 // ----------------------------------------------------------------------------
-const DEFAULT_MAX_FRAME_DEPTH = 5;
+const DEFAULT_MAX_FRAME_DEPTH = 10;
+const HARD_MAX_FRAME_DEPTH = 25;
+
+// Schemes that must never be treated as a capturable cross-origin iframe.
+// Kept in sync with the canonical list in percy-protractor/percy-nightwatch
+// `_iframe_shim.js` and percy-playwright `index.js`.
+const BROWSER_INTERNAL_PREFIXES = [
+  'about:', 'chrome:', 'chrome-extension:', 'devtools:',
+  'edge:', 'opera:', 'view-source:', 'data:', 'javascript:', 'blob:',
+  // legacy IE-era schemes that still appear on adversarial pages
+  'vbscript:', 'file:'
+];
 
 function isUnsupportedIframeSrc(src) {
   if (!src) return true;
-  if (
-    src === 'about:blank' ||
-    src === 'about:srcdoc' ||
-    src.startsWith('about:') ||
-    src.startsWith('javascript:') ||
-    src.startsWith('data:') ||
-    src.startsWith('vbscript:') ||
-    src.startsWith('blob:') ||
-    src.startsWith('chrome:') ||
-    src.startsWith('chrome-extension:')
-  ) return true;
-  return false;
+  // Scheme comparison must be case-insensitive: browsers treat `JavaScript:`
+  // and `javascript:` identically, so the filter has to as well.
+  const s = String(src).toLowerCase();
+  return BROWSER_INTERNAL_PREFIXES.some(p => s.startsWith(p));
 }
 
 function clampFrameDepth(d) {
   const n = Number(d);
   if (!Number.isFinite(n) || n < 1) return DEFAULT_MAX_FRAME_DEPTH;
-  if (n > 20) return 20; // safety upper bound
+  if (n > HARD_MAX_FRAME_DEPTH) return HARD_MAX_FRAME_DEPTH; // safety upper bound
   return Math.floor(n);
 }
 
@@ -841,5 +844,6 @@ module.exports._internals = {
   captureCorsIframes,
   exposeClosedShadowRoots,
   isClosedShadowRootsExposureSkipped,
-  DEFAULT_MAX_FRAME_DEPTH
+  DEFAULT_MAX_FRAME_DEPTH,
+  HARD_MAX_FRAME_DEPTH
 };

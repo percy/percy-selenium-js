@@ -2472,8 +2472,20 @@ describe('inlined helper functions', () => {
       expect(internals.isUnsupportedIframeSrc('blob:foo')).toBeTrue();
       expect(internals.isUnsupportedIframeSrc('chrome://settings')).toBeTrue();
       expect(internals.isUnsupportedIframeSrc('chrome-extension://x')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('devtools://devtools/bundled')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('edge://settings')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('opera://about')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('view-source:https://example.com')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('file:///etc/hosts')).toBeTrue();
       expect(internals.isUnsupportedIframeSrc('')).toBeTrue();
       expect(internals.isUnsupportedIframeSrc(null)).toBeTrue();
+    });
+
+    it('matches schemes case-insensitively', () => {
+      expect(internals.isUnsupportedIframeSrc('JavaScript:void(0)')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('ABOUT:blank')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('Data:text/html,foo')).toBeTrue();
+      expect(internals.isUnsupportedIframeSrc('VBScript:foo')).toBeTrue();
     });
 
     it('returns false for normal http/https URLs', () => {
@@ -2491,8 +2503,13 @@ describe('inlined helper functions', () => {
       expect(internals.clampFrameDepth('not a number')).toBe(internals.DEFAULT_MAX_FRAME_DEPTH);
     });
 
-    it('clamps to upper bound 20', () => {
-      expect(internals.clampFrameDepth(100)).toBe(20);
+    it('clamps to the hard upper bound', () => {
+      expect(internals.clampFrameDepth(100)).toBe(internals.HARD_MAX_FRAME_DEPTH);
+      expect(internals.HARD_MAX_FRAME_DEPTH).toBe(25);
+    });
+
+    it('defaults to 10 frames deep', () => {
+      expect(internals.DEFAULT_MAX_FRAME_DEPTH).toBe(10);
     });
 
     it('returns valid integer depths', () => {
