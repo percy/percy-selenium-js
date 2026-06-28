@@ -2459,7 +2459,7 @@ describe('post-switch URL re-check', () => {
   });
 });
 
-describe('inlined helper functions', () => {
+describe('iframe helper functions (sourced from @percy/sdk-utils)', () => {
   const internals = percySnapshot._internals;
 
   describe('isUnsupportedIframeSrc', () => {
@@ -2505,11 +2505,15 @@ describe('inlined helper functions', () => {
 
     it('clamps to the hard upper bound', () => {
       expect(internals.clampFrameDepth(100)).toBe(internals.HARD_MAX_FRAME_DEPTH);
-      expect(internals.HARD_MAX_FRAME_DEPTH).toBe(25);
+      // Bound now sourced from @percy/sdk-utils (HARD_MAX_IFRAME_DEPTH = 10),
+      // previously the locally-inlined value was 25.
+      expect(internals.HARD_MAX_FRAME_DEPTH).toBe(10);
     });
 
-    it('defaults to 10 frames deep', () => {
-      expect(internals.DEFAULT_MAX_FRAME_DEPTH).toBe(10);
+    it('defaults to the sdk-utils default depth', () => {
+      // Sourced from @percy/sdk-utils (DEFAULT_MAX_IFRAME_DEPTH = 3),
+      // previously the locally-inlined default was 10.
+      expect(internals.DEFAULT_MAX_FRAME_DEPTH).toBe(3);
     });
 
     it('returns valid integer depths', () => {

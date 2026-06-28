@@ -17,59 +17,28 @@ const CS_MAX_SCREENSHOT_LIMIT = 25000;
 const SCROLL_DEFAULT_SLEEP_TIME = 0.45; // 450ms
 
 // ----------------------------------------------------------------------------
-// Inlined helpers — these mirror percy-nightwatch/lib/snapshot.js. Once
-// @percy/sdk-utils publishes shared versions we can delete these.
+// Shared iframe helpers — sourced from @percy/sdk-utils (percy/cli #2319).
+// These used to be inlined here (and hand-copied across every SDK, where they
+// drifted into divergent versions); they now live in one canonical place.
+//
+// Behavioral notes vs. the old inlined copies:
+//  - UNSUPPORTED_IFRAME_SRCS is a superset of the old BROWSER_INTERNAL_PREFIXES
+//    (adds opera:/edge: parity plus ws:/wss:/ftp:), so strictly more srcs are
+//    skipped — no previously-skipped scheme is now captured.
+//  - Depth bounds now come from sdk-utils (DEFAULT=3, HARD=10) rather than the
+//    old local DEFAULT=10/HARD=25. Aliased below to keep call sites + the
+//    _internals export surface stable.
 // ----------------------------------------------------------------------------
-const DEFAULT_MAX_FRAME_DEPTH = 10;
-const HARD_MAX_FRAME_DEPTH = 25;
-
-// Schemes that must never be treated as a capturable cross-origin iframe.
-// Kept in sync with the canonical list in percy-protractor/percy-nightwatch
-// `_iframe_shim.js` and percy-playwright `index.js`.
-const BROWSER_INTERNAL_PREFIXES = [
-  'about:', 'chrome:', 'chrome-extension:', 'devtools:',
-  'edge:', 'opera:', 'view-source:', 'data:', 'javascript:', 'blob:',
-  // legacy IE-era schemes that still appear on adversarial pages
-  'vbscript:', 'file:'
-];
-
-function isUnsupportedIframeSrc(src) {
-  if (!src) return true;
-  // Scheme comparison must be case-insensitive: browsers treat `JavaScript:`
-  // and `javascript:` identically, so the filter has to as well.
-  const s = String(src).toLowerCase();
-  return BROWSER_INTERNAL_PREFIXES.some(p => s.startsWith(p));
-}
-
-function clampFrameDepth(d) {
-  const n = Number(d);
-  if (!Number.isFinite(n) || n < 1) return DEFAULT_MAX_FRAME_DEPTH;
-  if (n > HARD_MAX_FRAME_DEPTH) return HARD_MAX_FRAME_DEPTH; // safety upper bound
-  return Math.floor(n);
-}
-
-function normalizeIgnoreSelectors(input) {
-  if (!input) return [];
-  if (Array.isArray(input)) return input.filter(s => typeof s === 'string' && s.length);
-  if (typeof input === 'string') return [input]; // `!input` above already catches empty string
-  return [];
-}
-
-function resolveMaxFrameDepth(options = {}, utilsRef) {
-  return clampFrameDepth(
-    options.maxIframeDepth ??
-    utilsRef?.percy?.config?.snapshot?.maxIframeDepth ??
-    DEFAULT_MAX_FRAME_DEPTH
-  );
-}
-
-function resolveIgnoreSelectors(options = {}, utilsRef) {
-  return normalizeIgnoreSelectors(
-    options.ignoreIframeSelectors ??
-    utilsRef?.percy?.config?.snapshot?.ignoreIframeSelectors ??
-    []
-  );
-}
+const {
+  isUnsupportedIframeSrc,
+  normalizeIgnoreSelectors,
+  resolveMaxFrameDepth,
+  resolveIgnoreSelectors,
+  clampIframeDepth: clampFrameDepth,
+  UNSUPPORTED_IFRAME_SRCS,
+  DEFAULT_MAX_IFRAME_DEPTH: DEFAULT_MAX_FRAME_DEPTH,
+  HARD_MAX_IFRAME_DEPTH: HARD_MAX_FRAME_DEPTH
+} = utils;
 
 function getOrigin(url) {
   try {
@@ -285,8 +254,10 @@ async function processFrameTree(driver, meta, depth, ancestorUrls, ctx) {
 }
 
 async function captureCorsIframes(driver, currentUrl, options, percyDOMScript) {
-  const ignoreSelectors = resolveIgnoreSelectors(options, utils);
-  const maxFrameDepth = resolveMaxFrameDepth(options, utils);
+  // sdk-utils' resolvers read the shared percy-info singleton internally for
+  // the config fallback, so they take only `options` (no utilsRef arg).
+  const ignoreSelectors = resolveIgnoreSelectors(options);
+  const maxFrameDepth = resolveMaxFrameDepth(options);
   const ctx = { maxFrameDepth, ignoreSelectors, options, percyDOMScript };
 
   try {
@@ -852,5 +823,6 @@ module.exports._internals = {
   exposeClosedShadowRoots,
   isClosedShadowRootsExposureSkipped,
   DEFAULT_MAX_FRAME_DEPTH,
-  HARD_MAX_FRAME_DEPTH
+  HARD_MAX_FRAME_DEPTH,
+  UNSUPPORTED_IFRAME_SRCS
 };
