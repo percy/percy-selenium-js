@@ -61,8 +61,8 @@ async function captureResponsiveDOM(driver, options) {
   /* istanbul ignore next: no instrumenting injected code */
   await driver.executeScript('PercyDOM.waitForResize()');
   let defaultHeight = currentHeight;
-  if (isResponsiveMinHeightEnabled()) {
-    defaultHeight = utils.percy?.config?.snapshot?.minHeight;
+  if (isResponsiveMinHeightEnabled() && options.minHeight) {
+    defaultHeight = options.minHeight;
   }
   for (let { width, height } of widthHeights) {
     height = height || defaultHeight;
@@ -236,7 +236,7 @@ function isResponsiveDOMCaptureValid(options) {
   );
 }
 
-async function captureDOM(driver, options = {}) {
+async function captureDOM(driver, options) {
   const responsiveSnapshotCapture = isResponsiveDOMCaptureValid(options);
   if (responsiveSnapshotCapture) {
     return await captureResponsiveDOM(driver, options);
@@ -325,8 +325,9 @@ const percySnapshot = async function percySnapshot(driver, name, options) {
     // Inject the DOM serialization script
     await driver.executeScript(await utils.fetchPercyDOM());
     // Serialize and capture the DOM
+    const mergedOptions = utils.mergeSnapshotOptions(options);
     /* istanbul ignore next: no instrumenting injected code */
-    let domSnapshot = await captureDOM(driver, options);
+    let domSnapshot = await captureDOM(driver, mergedOptions);
     let url = await currentURL(driver, options);
     // Post the DOM to the snapshot endpoint with snapshot options and other info
     const response = await utils.postSnapshot({
