@@ -141,6 +141,11 @@
     "@babel/helper-string-parser" "^7.27.1"
     "@babel/helper-validator-identifier" "^7.28.5"
 
+"@bazel/runfiles@^6.5.0":
+  version "6.5.0"
+  resolved "https://registry.yarnpkg.com/@bazel/runfiles/-/runfiles-6.5.0.tgz#63cf7b77b91b54873e75f7a08fabec215c6888be"
+  integrity sha512-RzahvqTkfpY2jsDxo8YItPX+/iZ6hbiikw1YhE0bA9EKBR5Og8Pa6FHn9PO9M0zaXRVsr0GFQLKbB/0rzy9SzA==
+
 "@eslint-community/eslint-utils@^4.2.0":
   version "4.9.1"
   resolved "https://registry.npmjs.org/@eslint-community/eslint-utils/-/eslint-utils-4.9.1.tgz"
@@ -549,10 +554,11 @@
     "@types/node" "*"
 
 "@types/selenium-webdriver@^4.0.9":
-  version "4.1.15"
-  resolved "https://registry.npmjs.org/@types/selenium-webdriver/-/selenium-webdriver-4.1.15.tgz"
-  integrity sha512-oQ15G3q3EZ0dS049SB/5zx2tQkIS2kmDQWC/TSfAHJYKvXLZoUiLaPXnfSwbLP8Q5lcJeu5oYjKVSEV0t3H6Bg==
+  version "4.35.6"
+  resolved "https://registry.yarnpkg.com/@types/selenium-webdriver/-/selenium-webdriver-4.35.6.tgz#28acbfaa35d417d730d04a5a59def50bad558387"
+  integrity sha512-8nfyMRi4VvkY9QrQGyY/zkleAhnjnmE8YtdEeoCrWe3izp1P9vo9f5VTNRYF0up+l+kn+VuZah+je+bLddNV+g==
   dependencies:
+    "@types/node" "*"
     "@types/ws" "*"
 
 "@types/ws@*":
@@ -3270,14 +3276,15 @@ safe-regex-test@^1.1.0:
     es-errors "^1.3.0"
     is-regex "^1.2.1"
 
-selenium-webdriver@~4.10.0:
-  version "4.10.0"
-  resolved "https://registry.npmjs.org/selenium-webdriver/-/selenium-webdriver-4.10.0.tgz"
-  integrity sha512-hSQPw6jgc+ej/UEcdQPG/iBwwMeCEgZr9HByY/J8ToyXztEqXzU9aLsIyrlj1BywBcStO4JQK/zMUWWrV8+riA==
+selenium-webdriver@~4.46.0:
+  version "4.46.0"
+  resolved "https://registry.yarnpkg.com/selenium-webdriver/-/selenium-webdriver-4.46.0.tgz#5dab03f0f815a481ffbfa056e24de0db1f0020da"
+  integrity sha512-UlTkgnx9y+bf3QxFsrgUyMqC2oy1Yf+qcOs7xIC/XfsUPv/ow7Sicx6SJ7AeOn2/Z+xF1M8SLqyn983wipI82w==
   dependencies:
+    "@bazel/runfiles" "^6.5.0"
     jszip "^3.10.1"
-    tmp "^0.2.1"
-    ws ">=8.13.0"
+    tmp "^0.2.7"
+    ws "^8.21.0"
 
 "semver@2 || 3 || 4 || 5":
   version "5.7.2"
@@ -3608,10 +3615,10 @@ text-table@^0.2.0:
   resolved "https://registry.npmjs.org/text-table/-/text-table-0.2.0.tgz"
   integrity sha512-N+8UisAXDGk8PFXP4HAzVR9nbfmVJ3zYLAWiTIoqC5v5isinhr+r5uaO8+7r3BMfuNIufIsA7RdpVgacC2cSpw==
 
-tmp@^0.2.1:
-  version "0.2.5"
-  resolved "https://registry.npmjs.org/tmp/-/tmp-0.2.5.tgz"
-  integrity sha512-voyz6MApa1rQGUxT3E+BK7/ROe8itEx7vD8/HEvt4xwXucvQ5G5oeEiHkmHZJuBO21RpOf+YYm9MOivj709jow==
+tmp@^0.2.7:
+  version "0.2.7"
+  resolved "https://registry.yarnpkg.com/tmp/-/tmp-0.2.7.tgz#26f4db11d1601ce8012dcb8a798ece1c06a99059"
+  integrity sha512-e0votIpp4Uo2AJYSzVHV6xCcawuiez3DzqDAbrTc3YxBkplN6e+dM13ZeIcZnDg/QpSuU2zfZ3rzwY8ukEnaXw==
 
 to-regex-range@^5.0.1:
   version "5.0.1"
@@ -3878,10 +3885,10 @@ write-file-atomic@^3.0.0:
     signal-exit "^3.0.2"
     typedarray-to-buffer "^3.1.5"
 
-ws@>=8.13.0, ws@^8.17.1:
-  version "8.20.1"
-  resolved "https://registry.npmjs.org/ws/-/ws-8.20.1.tgz"
-  integrity sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==
+ws@^8.17.1, ws@^8.21.0:
+  version "8.21.3"
+  resolved "https://registry.yarnpkg.com/ws/-/ws-8.21.3.tgz#660b4faddb6a3e575c86e078126919961f4de4fc"
+  integrity sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==
 
 y18n@^4.0.0:
   version "4.0.3"
