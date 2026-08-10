@@ -437,10 +437,10 @@
   dependencies:
     pac-proxy-agent "^7.0.2"
 
-"@percy/sdk-utils@1.32.3-beta.1":
-  version "1.32.3-beta.1"
-  resolved "https://registry.yarnpkg.com/@percy/sdk-utils/-/sdk-utils-1.32.3-beta.1.tgz#7ae9b9c61d4a0bbaeb240dd4abfffb9d905a99cf"
-  integrity sha512-/oD+82slu1tuV3nFkwrdBWUIZ3JdmPuh2ajlcWbumTxu0lu2hhZLKmCTE72Fc5N6UXoHl9tQzJPrkT0/W/aigQ==
+"@percy/sdk-utils@1.32.6":
+  version "1.32.6"
+  resolved "https://registry.yarnpkg.com/@percy/sdk-utils/-/sdk-utils-1.32.6.tgz#06665282db613e0e968b7f8591e27632e015edfd"
+  integrity sha512-dtS4jFz55zQzd0tAtxpt77w4gMeySEjLZEDFHrs3mtmpmnjRlSD0koYl8pj4/X3f375SmXTXG4+xIRgPpSTgZw==
   dependencies:
     pac-proxy-agent "^7.0.2"
 
