@@ -11,7 +11,14 @@ const CLIENT_INFO = `${sdkPkg.name}/${sdkPkg.version}`;
 const ENV_INFO = `${seleniumPkg.name}/${seleniumPkg.version}`;
 const utils = require('@percy/sdk-utils');
 const { DriverMetadata } = require('./driverMetadata');
-const { By } = require('selenium-webdriver');
+let By;
+try {
+  ({ By } = require('selenium-webdriver'));
+} catch {
+  /* istanbul ignore next: selenium-webdriver is an optional peer; absent in
+     WebdriverIO projects, where only the Automate (percyScreenshot) path is
+     used and `By` is never reached. */
+}
 const log = utils.logger('selenium-webdriver');
 const CS_MAX_SCREENSHOT_LIMIT = 25000;
 const SCROLL_DEFAULT_SLEEP_TIME = 0.45; // 450ms
