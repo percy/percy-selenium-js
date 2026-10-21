@@ -14,9 +14,16 @@ jobs:
   test:
     name: Test
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest]
         node: [22]
+        include:
+          # engines.node is >=14 and there's no selenium-webdriver peer range, so
+          # keep the older line under test. The locked 4.50 needs Node >=22.
+          - { os: ubuntu-latest, node: 14, selenium: '~4.10.0' }
+          - { os: ubuntu-latest, node: 16, selenium: '~4.10.0' }
+          - { os: ubuntu-latest, node: 18, selenium: '~4.10.0' }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions-ecosystem/action-regex-match@9e6c4fb3d5e898f505be7a1fb6e7b0a278f6665b # v2.0.2
@@ -41,6 +48,12 @@ jobs:
           key: v1/${{ runner.os }}/node-${{ matrix.node }}/${{ hashFiles('**/yarn.lock') }}
           restore-keys: v1/${{ runner.os }}/node-${{ matrix.node }}/
       - run: yarn
+        if: ${{ !matrix.selenium }}
+      # yarn would reject the locked selenium-webdriver 4.50 on older Node
+      # (engine check), so re-resolve just that package for these rows.
+      - name: Install with selenium-webdriver ${{ matrix.selenium }}
+        if: ${{ matrix.selenium }}
+        run: yarn add --dev selenium-webdriver@${{ matrix.selenium }}
       - name: Set up @percy/cli from git
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
