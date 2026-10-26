@@ -3,6 +3,14 @@ const { Cache } = require('./cache');
 const { RequestInterceptor } = require('node-request-interceptor');
 const withDefaultInterceptors = require('node-request-interceptor/lib/presets/default');
 
+// The interceptor patches http globally, so only one may be active at a time
+let interceptLock = Promise.resolve();
+function withInterceptLock(fn) {
+  const run = interceptLock.then(fn, fn);
+  interceptLock = run.catch(() => {});
+  return run;
+}
+
 class DriverMetadata {
   constructor(driver) {
     this.driver = driver;
@@ -39,18 +47,23 @@ class DriverMetadata {
       if (this.type === 'wdio') {
         return `${this.driver.options.protocol}://${this.driver.options.hostname}${this.driver.options.path}`;
       } else {
-        // To intercept request from driver. used to get remote server url
-        const interceptor = new RequestInterceptor(withDefaultInterceptors.default);
-        let commandExecutorUrl = '';
-        interceptor.use((req) => {
-          const url = req.url.href;
-          commandExecutorUrl = url.split('/session')[0];
+        return withInterceptLock(async () => {
+          // To intercept request from driver. used to get remote server url
+          const interceptor = new RequestInterceptor(withDefaultInterceptors.default);
+          let commandExecutorUrl = '';
+          interceptor.use((req) => {
+            const url = req.url.href;
+            commandExecutorUrl = url.split('/session')[0];
+          });
+          try {
+            // making a call so we can intercept commandExecutorUrl
+            await this.driver.getCurrentUrl();
+          } finally {
+            // To stop intercepting request, even if the call fails
+            interceptor.restore();
+          }
+          return commandExecutorUrl;
         });
-        // making a call so we can intercept commandExecutorUrl
-        await this.driver.getCurrentUrl();
-        // To stop intercepting request
-        interceptor.restore();
-        return commandExecutorUrl;
       }
     });
   }
