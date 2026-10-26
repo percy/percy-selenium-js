@@ -14,6 +14,11 @@ jobs:
         with:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
-      - run: npm publish
+      # npm 11 (Node 24) rejects prereleases without an explicit tag, and publishConfig.tag is "latest"
+      - name: Publish
+        run: |
+          TAG=latest
+          if [[ "$(node -p "require('./package.json').version")" == *-* ]]; then TAG=beta; fi
+          npm publish --tag "$TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
