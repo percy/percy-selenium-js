@@ -19,6 +19,12 @@ try {
      WebdriverIO projects, where only the Automate (percyScreenshot) path is
      used and `By` is never reached. */
 }
+let Command;
+try {
+  ({ Command } = require('selenium-webdriver/lib/command'));
+} catch {
+  /* istanbul ignore next: same optional-peer guard as `By` above. */
+}
 const log = utils.logger('selenium-webdriver');
 const CS_MAX_SCREENSHOT_LIMIT = 25000;
 const SCROLL_DEFAULT_SLEEP_TIME = 0.45; // 450ms
@@ -320,28 +326,254 @@ async function captureCorsIframes(driver, currentUrl, options, percyDOMScript) {
   }
 }
 
+const CHROMIUM_BROWSER_NAMES = ['chrome', 'chromium', 'msedge', 'microsoftedge', 'chrome-headless-shell'];
+const CDP_EXECUTE_COMMAND = 'percy:cdpExecute';
+// W3C WebDriver shadow-root reference key. selenium-webdriver serializes a
+// ShadowRoot argument as a bare id string, so the reference is built by hand.
+const SHADOW_ROOT_REFERENCE_KEY = 'shadow-6066-11e4-a52e-4f735466cecf';
+const DEFAULT_CLOSED_SHADOW_MAX_HOSTS = 200;
+const BIDI_MAX_SHADOW_ROUNDS = 10;
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1', '[::1]'];
+const loggedOnce = new Set();
+
+function logOnce(key, level, message) {
+  if (loggedOnce.has(key)) return;
+  loggedOnce.add(key);
+  log[level](message);
+}
+
+async function getDriverCapabilities(driver) {
+  try {
+    return (await driver.getCapabilities()) || null;
+  } catch {
+    return null;
+  }
+}
+
+function getCapability(caps, name) {
+  return typeof caps?.get === 'function' ? caps.get(name) : undefined;
+}
+
+function getBrowserName(caps) {
+  const name = typeof caps?.getBrowserName === 'function'
+    ? caps.getBrowserName()
+    : getCapability(caps, 'browserName');
+  return String(name || '').toLowerCase();
+}
+
+function hasNativeCdp(driver) {
+  return typeof driver?.sendDevToolsCommand === 'function' ||
+    typeof driver?.sendAndGetDevToolsCommand === 'function';
+}
+
+function isChromiumBrowser(driver, browserName) {
+  if (CHROMIUM_BROWSER_NAMES.includes(browserName)) return true;
+  return hasNativeCdp(driver) && !/firefox|safari/.test(browserName);
+}
+
+// Returns `(cmd, params) => Promise` for Chromium sessions, or null. `preferResult`
+// picks sendAndGetDevToolsCommand first (callers that read the response).
+function getCdpInvoker(driver, browserName, preferResult = false) {
+  if (!isChromiumBrowser(driver, browserName)) return null;
+  const order = preferResult
+    ? ['sendAndGetDevToolsCommand', 'sendDevToolsCommand']
+    : ['sendDevToolsCommand', 'sendAndGetDevToolsCommand'];
+  for (const method of order) {
+    if (typeof driver[method] === 'function') return driver[method].bind(driver);
+  }
+  // Remote Chromium built as a plain WebDriver (e.g. MicrosoftEdge through a
+  // Grid or Automate hub) has no CDP helpers, but the driver's HTTP CDP
+  // endpoint still passes through those hubs. msedgedriver only serves it
+  // under its own vendor prefix.
+  const executor = typeof driver.getExecutor === 'function' ? driver.getExecutor() : null;
+  if (!Command || typeof executor?.defineCommand !== 'function' || typeof driver.execute !== 'function') return null;
+  const vendor = /edge/.test(browserName) ? 'ms' : 'goog';
+  executor.defineCommand(CDP_EXECUTE_COMMAND, 'POST', `/session/:sessionId/${vendor}/cdp/execute`);
+  return (cmd, params) => driver.execute(
+    new Command(CDP_EXECUTE_COMMAND).setParameter('cmd', cmd).setParameter('params', params)
+  );
+}
+
+function hasBidiSession(caps) {
+  return typeof getCapability(caps, 'webSocketUrl') === 'string';
+}
+
+// The BiDi browsingContext module is required lazily so non-BiDi sessions
+// never load it; setViewport needs selenium-webdriver >= 4.15.
+const bidiModules = {
+  browsingContext() {
+    try {
+      return require('selenium-webdriver/bidi/browsingContext');
+    } catch {
+      /* istanbul ignore next: only reachable on bindings without BiDi */
+      return null;
+    }
+  }
+};
+
+async function getBidiBrowsingContext(driver) {
+  const getBrowsingContext = bidiModules.browsingContext();
+  if (typeof getBrowsingContext !== 'function') return null;
+  const id = await driver.getWindowHandle();
+  const context = await getBrowsingContext(driver, { browsingContextId: id });
+  if (typeof context?.setViewport !== 'function' || !context.bidi) return null;
+  return { id, bidi: context.bidi, setViewport: (width, height) => context.setViewport(width, height, 1) };
+}
+
+async function sendBidi(context, method, params) {
+  const response = await context.bidi.send({ method, params });
+  if (response?.error) throw new Error(`${response.error}: ${response.message}`);
+  return response?.result;
+}
+
+async function isLocalDriver(driver) {
+  try {
+    const url = await new DriverMetadata(driver).getCommandExecutorUrl();
+    return LOCAL_HOSTS.includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isShadowDomDisabled(options) {
+  return !!(options?.disableShadowDOM ?? utils.percy?.config?.snapshot?.disableShadowDOM);
+}
+
+/* eslint-disable no-undef */
+// In-browser: records host -> closed-root pairs passed as (host, root, ...)
+// arguments, then lists elements that may hold a further closed root inside
+// the given roots (or the document when none are given), descending into open
+// roots. `customOnly` limits candidates to custom elements, which keeps the
+// per-host WebDriver round trips of the classic path bounded.
+/* istanbul ignore next: browser-executed code */
+function findClosedShadowCandidates(customOnly, ...pairs) {
+  const map = window.__percyClosedShadowRoots = window.__percyClosedShadowRoots || new WeakMap();
+  const roots = [];
+  for (let i = 0; i + 1 < pairs.length; i += 2) {
+    map.set(pairs[i], pairs[i + 1]);
+    roots.push(pairs[i + 1]);
+  }
+  if (!pairs.length) roots.push(document);
+  const hostable = /^(article|aside|blockquote|body|div|footer|h[1-6]|header|main|nav|p|section|span)$/;
+  const out = [];
+  const walk = (root) => {
+    for (const el of root.querySelectorAll('*')) {
+      if (el.shadowRoot) walk(el.shadowRoot);
+      else if (el.localName.includes('-') || (!customOnly && hostable.test(el.localName))) out.push(el);
+    }
+  };
+  roots.forEach(walk);
+  return out;
+}
+/* eslint-enable no-undef */
+
+// BiDi serializes each candidate with its shadow root (closed included) when
+// asked for includeShadowTree 'all'; feeding the found pairs back fills the
+// WeakMap and returns the candidates inside them, so nesting costs one call
+// per level.
+async function exposeClosedShadowRootsViaBidi(driver) {
+  const context = await getBidiBrowsingContext(driver);
+  if (!context) return false;
+  const functionDeclaration = `function(...args) { return (${findClosedShadowCandidates.toString()})(false, ...args); }`;
+  let pairs = [];
+  let exposed = 0;
+  for (let round = 0; round < BIDI_MAX_SHADOW_ROUNDS; round++) {
+    const result = await sendBidi(context, 'script.callFunction', {
+      functionDeclaration,
+      awaitPromise: false,
+      target: { context: context.id },
+      arguments: pairs.flatMap(([host, root]) => [{ sharedId: host }, { sharedId: root }]),
+      resultOwnership: 'none',
+      serializationOptions: { maxDomDepth: 0, includeShadowTree: 'all' }
+    });
+    if (result?.type !== 'success') throw new Error(result?.exceptionDetails?.text || 'script.callFunction failed');
+    exposed += pairs.length;
+    pairs = (result.result?.value || [])
+      .filter(node => node?.value?.shadowRoot?.value?.mode === 'closed')
+      .map(node => [node.sharedId, node.value.shadowRoot.sharedId]);
+    if (!pairs.length) break;
+  }
+  if (pairs.length) log.debug(`Stopped exposing closed shadow roots after ${BIDI_MAX_SHADOW_ROUNDS} nesting levels`);
+  if (exposed) log.debug(`Exposed ${exposed} closed shadow root(s) via BiDi`);
+  return true;
+}
+
+async function getShadowRootId(host) {
+  try {
+    // Safari answers closed hosts with a null root instead of an error.
+    const root = await host.getShadowRoot();
+    return root && typeof root.getId === 'function' ? await root.getId() : null;
+  } catch {
+    return null;
+  }
+}
+
+// WebDriver classic "Get Element Shadow Root" returns closed roots too (W3C
+// WebDriver §12.3.9), but costs one round trip per candidate, so it only runs
+// on local sessions and is capped.
+async function exposeClosedShadowRootsViaClassic(driver) {
+  if (!(await isLocalDriver(driver)) && process.env.PERCY_CLOSED_SHADOW_CLASSIC !== 'true') {
+    logOnce('closed-shadow-remote', 'info', 'closed shadow roots skipped on remote session; start the session with webSocketUrl: true or set PERCY_CLOSED_SHADOW_CLASSIC=true');
+    return;
+  }
+  const maxHosts = parseInt(process.env.PERCY_CLOSED_SHADOW_MAX_HOSTS, 10) || DEFAULT_CLOSED_SHADOW_MAX_HOSTS;
+  const candidates = (await driver.executeScript(findClosedShadowCandidates, true)) || [];
+  let checked = 0;
+  let exposed = 0;
+  while (candidates.length) {
+    if (checked >= maxHosts) {
+      log.debug(`Closed shadow root host cap (${maxHosts}) reached; ${candidates.length} candidate(s) skipped`);
+      break;
+    }
+    const host = candidates.shift();
+    checked++;
+    const rootId = await getShadowRootId(host);
+    if (!rootId) continue;
+    const nested = await driver.executeScript(findClosedShadowCandidates, true, host, { [SHADOW_ROOT_REFERENCE_KEY]: rootId });
+    exposed++;
+    if (Array.isArray(nested)) candidates.push(...nested);
+  }
+  if (exposed) log.debug(`Exposed ${exposed} closed shadow root(s) via WebDriver classic`);
+}
+
+// Fills window.__percyClosedShadowRoots (host -> closed root) for
+// PercyDOM.serialize with the first strategy the session supports: CDP on
+// Chromium, BiDi when the session already has webSocketUrl, else classic.
+// Never fails the snapshot.
+async function exposeClosedShadowRoots(driver, options) {
+  if (isShadowDomDisabled(options)) return;
+  const caps = await getDriverCapabilities(driver);
+  const browserName = getBrowserName(caps);
+  // Some drivers (e.g. Appium-based BrowserStack Automate) only expose
+  // sendAndGetDevToolsCommand; others expose sendDevToolsCommand; some both.
+  const cdp = getCdpInvoker(driver, browserName, true);
+  if (cdp && await exposeClosedShadowRootsViaCdp(driver, cdp)) return;
+
+  if (hasBidiSession(caps)) {
+    try {
+      if (await exposeClosedShadowRootsViaBidi(driver)) return;
+    } catch (err) {
+      log.warn(`Could not expose closed shadow roots via BiDi: ${err.message}`);
+    }
+  }
+
+  try {
+    await exposeClosedShadowRootsViaClassic(driver);
+  } catch (err) {
+    log.warn(`Could not expose closed shadow roots: ${err.message}`);
+  }
+}
+
 // Use CDP to discover closed shadow roots and expose them to PercyDOM.serialize.
 // Closed shadow roots are inaccessible from JS (element.shadowRoot === null), but
 // CDP's DOM domain can pierce them. We resolve each to a JS object handle and
 // store it in window.__percyClosedShadowRoots (a WeakMap keyed by host element).
-async function exposeClosedShadowRoots(driver) {
-  // Some drivers (e.g. Appium-based BrowserStack Automate) only expose
-  // sendAndGetDevToolsCommand; others expose sendDevToolsCommand; some both.
-  // We need at least one to walk the CDP DOM.
-  if (
-    typeof driver?.sendDevToolsCommand !== 'function' &&
-    typeof driver?.sendAndGetDevToolsCommand !== 'function'
-  ) return;
-
-  // Prefer sendAndGetDevToolsCommand (returns the result); fall back to
-  // sendDevToolsCommand. The selected function must be invoked through a
-  // single, awaited call — earlier code split the ternary across the await,
-  // which let the *unresolved Promise* be destructured as `{ root }` and
-  // silently dropped the closed-shadow-DOM capture path.
-  const cdp = typeof driver.sendAndGetDevToolsCommand === 'function'
-    ? driver.sendAndGetDevToolsCommand.bind(driver)
-    : driver.sendDevToolsCommand.bind(driver);
-
+// Returns false when CDP failed so the caller can try another strategy.
+async function exposeClosedShadowRootsViaCdp(driver, cdp) {
+  // The selected function must be invoked through a single, awaited call —
+  // earlier code split the ternary across the await, which let the
+  // *unresolved Promise* be destructured as `{ root }` and silently dropped
+  // the closed-shadow-DOM capture path.
   try {
     await cdp('DOM.enable', {});
 
@@ -349,7 +581,7 @@ async function exposeClosedShadowRoots(driver) {
 
     if (!root) {
       log.debug('CDP DOM.getDocument returned no root; skipping closed shadow root capture');
-      return;
+      return true;
     }
 
     const closedPairs = [];
@@ -375,7 +607,7 @@ async function exposeClosedShadowRoots(driver) {
     }
     walk(root);
 
-    if (!closedPairs.length) return;
+    if (!closedPairs.length) return true;
 
     log.debug(`Found ${closedPairs.length} closed shadow root(s), exposing via CDP`);
 
@@ -401,37 +633,116 @@ async function exposeClosedShadowRoots(driver) {
       };
       await cdp('Runtime.callFunctionOn', cmd);
     }
+    return true;
   } catch (err) {
-    // Non-fatal — closed shadow DOM just won't be captured (e.g. non-Chromium)
     log.debug(`Could not expose closed shadow roots via CDP: ${err.message}`);
+    return false;
   }
 }
 
-async function changeWindowDimensionAndWait(driver, width, height, resizeCount) {
-  try {
-    const caps = await driver.getCapabilities();
-    if (typeof driver?.sendDevToolsCommand === 'function' && caps.getBrowserName() === 'chrome' && process.env.PERCY_DISABLE_CDP_RESIZE !== 'true') {
-      await driver?.sendDevToolsCommand('Emulation.setDeviceMetricsOverride', {
-        height,
-        width,
-        deviceScaleFactor: 1,
-        mobile: false
-      });
-    } else {
-      await driver.manage().window().setRect({ width, height });
-    }
-  } catch (e) {
-    log.debug(`Resizing using CDP failed, falling back to driver resize for width ${width}`, e);
-    await driver.manage().window().setRect({ width, height });
-  }
+// Precedence: per-snapshot option, then .percy.yml (healthcheck config), then
+// the legacy JS-only PERCY_DISABLE_CDP_RESIZE, then on by default.
+function isExactResponsiveWidth(options) {
+  const configured = options?.exactResponsiveWidth ?? utils.percy?.config?.snapshot?.exactResponsiveWidth;
+  if (typeof configured === 'boolean') return configured;
+  return process.env.PERCY_DISABLE_CDP_RESIZE !== 'true';
+}
 
+async function readInnerWidth(driver, width) {
+  let innerWidth;
   try {
     await driver.wait(async () => {
-      /* istanbul ignore next: no instrumenting injected code */
-      return await driver.executeScript('return window.resizeCount') === resizeCount;
+      innerWidth = await driver.executeScript('return window.innerWidth');
+      return innerWidth === width;
     }, 1000);
   } catch (e) {
-    log.debug(`Timed out waiting for window resize event for width ${width}`, e);
+    log.debug(`Timed out waiting for viewport width ${width} (innerWidth ${innerWidth})`);
+  }
+  return innerWidth;
+}
+
+// Resolves which viewport mechanisms to try, in order, for one responsive capture.
+async function createViewportResizer(driver, exact) {
+  const caps = await getDriverCapabilities(driver);
+  const browserName = getBrowserName(caps);
+  const mechanisms = [];
+  let cdp = null;
+  if (exact) {
+    cdp = getCdpInvoker(driver, browserName);
+    if (cdp) mechanisms.push('cdp');
+    if (hasBidiSession(caps)) mechanisms.push('bidi');
+  } else if (typeof driver?.sendDevToolsCommand === 'function' && browserName === 'chrome' &&
+    process.env.PERCY_DISABLE_CDP_RESIZE !== 'true') {
+    cdp = driver.sendDevToolsCommand.bind(driver);
+    mechanisms.push('cdp');
+  }
+  mechanisms.push('window');
+  return { driver, exact, browserName, cdp, mechanisms, used: new Set(), bidiContext: null };
+}
+
+const viewportSetters = {
+  async cdp(resizer, width, height) {
+    await resizer.cdp('Emulation.setDeviceMetricsOverride', { height, width, deviceScaleFactor: 1, mobile: false });
+  },
+
+  async bidi(resizer, width, height) {
+    resizer.bidiContext = resizer.bidiContext || await getBidiBrowsingContext(resizer.driver);
+    if (!resizer.bidiContext) throw new Error('BiDi browsingContext.setViewport is not available');
+    await resizer.bidiContext.setViewport(width, height);
+  },
+
+  // Window size includes browser chrome (Edge has an 8px border on macOS,
+  // Windows adds more), so correct once by the measured difference. OS minimum
+  // window widths (~500px) still make narrow widths unreachable here.
+  async window(resizer, width, height) {
+    const { driver } = resizer;
+    await driver.manage().window().setRect({ width, height });
+    let innerWidth = await readInnerWidth(driver, width);
+    if (!resizer.exact || typeof innerWidth !== 'number' || innerWidth === width) return;
+    await driver.manage().window().setRect({ width: width + (width - innerWidth), height });
+    innerWidth = await readInnerWidth(driver, width);
+    if (innerWidth === width) return;
+    log.debug(`Viewport is ${innerWidth}px instead of ${width}px after resizing the ${resizer.browserName} window`);
+    logOnce(`viewport-mismatch:${resizer.browserName}`, 'warn',
+      `Could not set an exact ${width}px viewport on ${resizer.browserName || 'this browser'} by resizing the window; ` +
+      'start the session with webSocketUrl: true to enable exact responsive widths');
+  }
+};
+
+async function setResponsiveViewport(resizer, width, height) {
+  while (resizer.mechanisms.length) {
+    const mechanism = resizer.mechanisms[0];
+    if (mechanism === 'window') {
+      await viewportSetters.window(resizer, width, height);
+      resizer.used.add(mechanism);
+      return;
+    }
+    try {
+      await viewportSetters[mechanism](resizer, width, height);
+      resizer.used.add(mechanism);
+      await readInnerWidth(resizer.driver, width);
+      return;
+    } catch (e) {
+      log.debug(`Resizing using ${mechanism} failed for width ${width}, trying the next mechanism: ${e.message}`);
+      resizer.mechanisms.shift();
+    }
+  }
+}
+
+// Clears emulation instead of re-applying it at the window's outer size, which
+// left the override in place after capture.
+async function restoreResponsiveViewport(resizer, width, height) {
+  const { driver, used } = resizer;
+  try {
+    if (used.has('cdp')) await resizer.cdp('Emulation.clearDeviceMetricsOverride', {});
+    if (used.has('bidi')) {
+      await sendBidi(resizer.bidiContext, 'browsingContext.setViewport', {
+        context: resizer.bidiContext.id, viewport: null, devicePixelRatio: null
+      });
+    }
+    if (used.has('window')) await driver.manage().window().setRect({ width, height });
+  } catch (e) {
+    log.debug(`Could not restore the viewport after responsive capture: ${e.message}`);
   }
 }
 
@@ -446,45 +757,45 @@ async function captureResponsiveDOM(driver, options) {
   const domSnapshots = [];
   const windowSize = await driver.manage().window().getRect();
   let currentWidth = windowSize.width; let currentHeight = windowSize.height;
-  let lastWindowWidth = currentWidth;
-  let resizeCount = 0;
-  // Setup the resizeCount listener if not present
-  /* istanbul ignore next: no instrumenting injected code */
-  await driver.executeScript('PercyDOM.waitForResize()');
+  const exact = isExactResponsiveWidth(options);
+  // The outer window width is not the viewport width, so in exact mode the
+  // first width is always applied.
+  let lastWindowWidth = exact ? null : currentWidth;
+  const resizer = await createViewportResizer(driver, exact);
   let defaultHeight = currentHeight;
   if (isResponsiveMinHeightEnabled() && options.minHeight) {
     defaultHeight = options.minHeight;
   }
-  for (let { width, height } of widthHeights) {
-    height = height || defaultHeight;
-    if (lastWindowWidth !== width) {
-      resizeCount++;
-      await changeWindowDimensionAndWait(driver, width, height, resizeCount);
-      lastWindowWidth = width;
-    }
+  try {
+    for (let { width, height } of widthHeights) {
+      height = height || defaultHeight;
+      if (lastWindowWidth !== width) {
+        await setResponsiveViewport(resizer, width, height);
+        lastWindowWidth = width;
+      }
 
-    if (process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE?.toLowerCase() === 'true') {
-      await driver.navigate().refresh();
-      await driver.executeScript(await utils.fetchPercyDOM());
-      // Re-prime closed shadow root WeakMap — refresh creates a new execution context
-      await exposeClosedShadowRoots(driver);
-    }
+      if (process.env.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE?.toLowerCase() === 'true') {
+        await driver.navigate().refresh();
+        await driver.executeScript(await utils.fetchPercyDOM());
+        // Re-prime closed shadow root WeakMap — refresh creates a new execution context
+        await exposeClosedShadowRoots(driver, options);
+      }
 
-    if (process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) {
-      await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) * 1000));
-    }
+      if (process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) {
+        await new Promise(resolve => setTimeout(resolve, parseInt(process.env.RESPONSIVE_CAPTURE_SLEEP_TIME) * 1000));
+      }
 
-    if (process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL?.toLowerCase() === 'true') {
-      await module.exports.slowScrollToBottom(driver);
-    }
+      if (process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL?.toLowerCase() === 'true') {
+        await module.exports.slowScrollToBottom(driver);
+      }
 
-    let domSnapshot = await captureSerializedDOM(driver, options);
-    domSnapshot.width = width;
-    domSnapshots.push(domSnapshot);
+      let domSnapshot = await captureSerializedDOM(driver, options);
+      domSnapshot.width = width;
+      domSnapshots.push(domSnapshot);
+    }
+  } finally {
+    await restoreResponsiveViewport(resizer, currentWidth, currentHeight);
   }
-
-  // Reset window size back to original dimensions
-  await changeWindowDimensionAndWait(driver, currentWidth, currentHeight, resizeCount + 1);
   return domSnapshots;
 }
 
@@ -510,7 +821,7 @@ async function captureSerializedDOM(driver, options) {
   // wasted I/O and (more importantly) mutates page state on a snapshot the SDK
   // does not actually upload. Mirrors `isResponsiveDOMCaptureValid`'s gating.
   if (!isClosedShadowRootsExposureSkipped(options)) {
-    await exposeClosedShadowRoots(driver);
+    await exposeClosedShadowRoots(driver, options);
   }
 
   /* istanbul ignore next */
@@ -830,6 +1141,16 @@ module.exports._internals = {
   captureCorsIframes,
   exposeClosedShadowRoots,
   isClosedShadowRootsExposureSkipped,
+  bidiModules,
+  getBidiBrowsingContext,
+  getCdpInvoker,
+  isLocalDriver,
+  isExactResponsiveWidth,
+  createViewportResizer,
+  setResponsiveViewport,
+  restoreResponsiveViewport,
+  exposeClosedShadowRootsViaBidi,
+  exposeClosedShadowRootsViaClassic,
   DEFAULT_MAX_FRAME_DEPTH,
   HARD_MAX_FRAME_DEPTH,
   UNSUPPORTED_IFRAME_SRCS
