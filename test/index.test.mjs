@@ -258,16 +258,15 @@ describe('percySnapshot', () => {
     mockedDriver.executeScript.calls.reset();
     await percySnapshot(mockedDriver, 'Test Snapshot', { responsiveSnapshotCapture: true });
 
-    // Expected 5 executeScript calls on the responsive min-height path (was 3
-    // before the CORS iframe + closed-shadow-DOM work landed):
+    // Expected 4 executeScript calls on the responsive min-height path:
     //   1. inject PercyDOM (percySnapshot)
-    //   2. PercyDOM.waitForResize() (captureResponsiveDOM)
-    //   3. PercyDOM.serialize(options) (captureSerializedDOM)
-    //   4. enumerateIframesScript (captureCorsIframes)
-    //   5. document.URL fetch (currentURL)
-    // exposeClosedShadowRoots adds 0 executeScript calls here because the
-    // mocked sendDevToolsCommand returns Promise.resolve() (no `root`).
-    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(5);
+    //   2. PercyDOM.serialize(options) (captureSerializedDOM)
+    //   3. enumerateIframesScript (captureCorsIframes)
+    //   4. document.URL fetch (currentURL)
+    // The innerWidth check runs inside the mocked driver.wait, and
+    // exposeClosedShadowRoots adds none because the mocked
+    // sendDevToolsCommand returns Promise.resolve() (no `root`).
+    expect(mockedDriver.executeScript).toHaveBeenCalledTimes(4);
     expect(mockedScroll).toHaveBeenCalledWith(mockedDriver);
     delete process.env.PERCY_ENABLE_LAZY_LOADING_SCROLL;
     delete process.env.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT;
@@ -1356,10 +1355,10 @@ describe('captureResponsiveDOM - getResponsiveWidths height/width handling', () 
     await percySnapshot(mockedDriver, 'reset dimensions', { responsiveSnapshotCapture: true, widths: [375] });
 
     const calls = mockedDriver.sendDevToolsCommand.calls.allArgs()
-      .filter(args => args[0] === 'Emulation.setDeviceMetricsOverride');
-    // Last call resets to original 1024x768
-    const lastCall = calls[calls.length - 1];
-    expect(lastCall[1]).toEqual(jasmine.objectContaining({ width: 1024, height: 768 }));
+      .filter(args => args[0].startsWith('Emulation.'));
+    // The override is cleared rather than re-applied at the outer window size
+    expect(calls[calls.length - 1]).toEqual(['Emulation.clearDeviceMetricsOverride', {}]);
+    expect(mockedDriver.manage().window().setRect).not.toHaveBeenCalled();
   });
 
   it('does not resize when responsive capture is disabled', async () => {
