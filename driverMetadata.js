@@ -49,15 +49,24 @@ class DriverMetadata {
       } else {
         return withInterceptLock(async () => {
           // To intercept request from driver. used to get remote server url
+          const sessionPath = `/session/${this.sessionId}/`;
           const interceptor = new RequestInterceptor(withDefaultInterceptors.default);
           let commandExecutorUrl = '';
+          let markSeen;
+          const seen = new Promise(resolve => { markSeen = resolve; });
           interceptor.use((req) => {
             const url = req.url.href;
-            commandExecutorUrl = url.split('/session')[0];
+            // only this session's request; other sessions share the global patch
+            if (!url.includes(sessionPath)) return;
+            commandExecutorUrl = url.split(sessionPath)[0];
+            markSeen();
           });
+          // making a call so we can intercept commandExecutorUrl
+          const call = this.driver.getCurrentUrl();
+          call.catch(() => {});
           try {
-            // making a call so we can intercept commandExecutorUrl
-            await this.driver.getCurrentUrl();
+            // release once our request is seen, so a hung hub can't hold the lock
+            await Promise.race([call, seen]);
           } finally {
             // To stop intercepting request, even if the call fails
             interceptor.restore();

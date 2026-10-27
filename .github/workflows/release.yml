@@ -17,8 +17,13 @@ jobs:
       # npm 11 (Node 24) rejects prereleases without an explicit tag, and publishConfig.tag is "latest"
       - name: Publish
         run: |
+          VERSION="$(node -p "require('./package.json').version")"
           TAG=latest
-          if [[ "$(node -p "require('./package.json').version")" == *-* ]]; then TAG=beta; fi
+          if [[ "$VERSION" == *-* ]]; then
+            TAG="${VERSION#*-}"; TAG="${TAG%%.*}"
+            # npm rejects semver-like tags (1.0.0-0 -> "0"); a prerelease never takes latest
+            if [[ ! "$TAG" =~ ^[a-z][a-z0-9-]*$ || "$TAG" == latest ]]; then TAG=beta; fi
+          fi
           npm publish --tag "$TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
