@@ -1,3 +1,4 @@
+import http from 'http';
 import { DriverMetadata } from '../driverMetadata.js';
 import { Cache } from '../cache.js';
 
@@ -57,6 +58,73 @@ describe('DriverMetadata', () => {
     it('return the command executor url', async () => {
       const driverMetadata = new DriverMetadata(new Browser());
       await expectAsync(driverMetadata.getCommandExecutorUrl()).toBeResolvedTo('https://hub-cloud.browserstack.com/wd/hub');
+    });
+
+    describe('with a selenium-webdriver driver', () => {
+      let servers = [];
+
+      // Starts a local hub; the mock driver's getCurrentUrl calls it over http
+      const startHub = async (stall) => {
+        const held = [];
+        const server = http.createServer((_, res) => (stall ? held.push(res) : setTimeout(() => res.end('{}'), 20)));
+        await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+        server.held = held;
+        servers.push(server);
+        return `http://127.0.0.1:${server.address().port}`;
+      };
+
+      const get = (url) => new Promise((resolve, reject) => {
+        http.get(url, res => { res.resume(); res.on('end', resolve); }).on('error', reject);
+      });
+
+      const wdDriver = (id, hub, { failing, noise } = {}) => ({
+        getSession: async () => ({ getId: () => id }),
+        getCurrentUrl: async () => {
+          if (failing) throw new Error('boom');
+          if (noise) await get(`${noise}/session/other/element`); // another session's command
+          await get(`${hub}/session/${id}/url`);
+          return '';
+        }
+      });
+
+      afterEach(async () => {
+        servers.forEach(s => s.held.forEach(res => res.end('{}')));
+        await Promise.all(servers.map(s => new Promise(resolve => s.close(resolve))));
+        servers = [];
+      });
+
+      it('keeps concurrent sessions from seeing each other\'s url', async () => {
+        const [hubA, hubB] = [await startHub(), await startHub()];
+        const results = await Promise.all([
+          new DriverMetadata(wdDriver('a', hubA)).getCommandExecutorUrl(),
+          new DriverMetadata(wdDriver('b', hubB)).getCommandExecutorUrl()
+        ]);
+        expect(results).toEqual([hubA, hubB]);
+      });
+
+      it('stops intercepting when the driver call fails', async () => {
+        const hub = await startHub();
+        await expectAsync(
+          new DriverMetadata(wdDriver('c', hub, { failing: true })).getCommandExecutorUrl()
+        ).toBeRejectedWithError('boom');
+        // a later call must still work, so the failed one released the lock and the patch
+        await expectAsync(
+          new DriverMetadata(wdDriver('d', hub)).getCommandExecutorUrl()
+        ).toBeResolvedTo(hub);
+      });
+
+      it('ignores requests from other sessions', async () => {
+        const [hub, other] = [await startHub(), await startHub()];
+        await expectAsync(
+          new DriverMetadata(wdDriver('e', hub, { noise: other })).getCommandExecutorUrl()
+        ).toBeResolvedTo(hub);
+      });
+
+      it('does not hold the lock while the hub hangs', async () => {
+        const [stuck, hub] = [await startHub(true), await startHub()];
+        await expectAsync(new DriverMetadata(wdDriver('f', stuck)).getCommandExecutorUrl()).toBeResolvedTo(stuck);
+        await expectAsync(new DriverMetadata(wdDriver('g', hub)).getCommandExecutorUrl()).toBeResolvedTo(hub);
+      });
     });
   });
 });

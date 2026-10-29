@@ -734,7 +734,8 @@ describe('percyScreenshot', () => {
           getCapabilities: () => { return { map_: new Map([['browserName', 'chrome'], ['platform', 'WINDOWS'], ['version', '123']]) }; }
         }));
       },
-      getCurrentUrl: () => { return new Promise((resolve, _) => resolve(helpers.mockGetCurrentUrl())); }
+      // a real driver call hits /session/<id>/..., which the interceptor now filters on
+      getCurrentUrl: async () => { try { await utils.request('/wd/hub/session/123/url'); } catch {} }
     };
   });
 
