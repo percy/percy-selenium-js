@@ -609,6 +609,25 @@ describe('percySnapshot', () => {
       expect(mockManage.getCookies).toHaveBeenCalled();
     });
 
+    it('leaves session cookies out of the posted snapshot', async () => {
+      const mockManage = {
+        getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve([
+          { name: 'JSESSIONID', value: 's', domain: 'example.com' },
+          { name: 'theme', value: 'dark', domain: 'example.com' }
+        ]))
+      };
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+      spyOn(driver, 'manage').and.returnValue(mockManage);
+
+      await percySnapshot(driver, 'Cookie filtering');
+
+      const requests = await helpers.get('requests', r => r);
+      const snap = requests.find(r => r.url === '/percy/snapshot');
+      expect(snap.body.domSnapshot.cookies.map(c => c.name)).toEqual(['theme']);
+    });
+
     it('should pass all options through async serialization', async () => {
       const customOptions = {
         enableJavaScript: true,
@@ -2457,6 +2476,38 @@ describe('post-switch URL re-check', () => {
     const snap = requests.find(r => r.url === '/percy/snapshot');
     const ds = Array.isArray(snap.body.domSnapshot) ? snap.body.domSnapshot[0] : snap.body.domSnapshot;
     expect(ds.corsIframes).toBeUndefined();
+  });
+});
+
+describe('filterSensitiveCookies', () => {
+  const { filterSensitiveCookies } = percySnapshot._internals;
+
+  afterEach(() => { delete process.env.PERCY_FORWARD_ALL_COOKIES; });
+
+  it('drops cookies with session or auth like names', () => {
+    const cookies = [
+      { name: 'session_id', value: 's' },
+      { name: 'auth_token', value: 'a' },
+      { name: 'XSRF-TOKEN', value: 'x' },
+      { name: '__Secure-sid', value: 'y' },
+      { name: 'theme', value: 'dark' },
+      { name: 'locale', value: 'en' }
+    ];
+    expect(filterSensitiveCookies(cookies).map(c => c.name)).toEqual(['theme', 'locale']);
+  });
+
+  it('keeps cookies without a name', () => {
+    expect(filterSensitiveCookies([{ value: 'v' }, null])).toEqual([{ value: 'v' }, null]);
+  });
+
+  it('returns non-array values unchanged', () => {
+    expect(filterSensitiveCookies({})).toEqual({});
+  });
+
+  it('forwards every cookie when PERCY_FORWARD_ALL_COOKIES is true', () => {
+    process.env.PERCY_FORWARD_ALL_COOKIES = 'true';
+    const cookies = [{ name: 'session_id', value: 's' }, { name: 'theme', value: 'dark' }];
+    expect(filterSensitiveCookies(cookies)).toEqual(cookies);
   });
 });
 

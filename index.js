@@ -47,6 +47,17 @@ const {
   HARD_MAX_IFRAME_DEPTH: HARD_MAX_FRAME_DEPTH
 } = utils;
 
+// Cookie names that commonly hold session/auth secrets. These are stripped from
+// snapshot payloads by default so credentials don't leave the tester's machine.
+// Set PERCY_FORWARD_ALL_COOKIES=true to forward the full cookie jar, e.g. when
+// asset discovery needs a session cookie to load authenticated assets.
+const SENSITIVE_COOKIE_PATTERN = /session|token|auth|sid|jwt|bearer|csrf|xsrf/i;
+
+function filterSensitiveCookies(cookies) {
+  if (process.env.PERCY_FORWARD_ALL_COOKIES === 'true' || !Array.isArray(cookies)) return cookies;
+  return cookies.filter(cookie => !SENSITIVE_COOKIE_PATTERN.test(cookie?.name || ''));
+}
+
 function getOrigin(url) {
   try {
     return new URL(url).origin;
@@ -546,7 +557,7 @@ async function captureSerializedDOM(driver, options) {
     log.debug(`Error during cross-origin iframe processing: ${e.message}`);
   }
   /* istanbul ignore next */
-  domSnapshot.cookies = await driver.manage().getCookies() || [];
+  domSnapshot.cookies = filterSensitiveCookies(await driver.manage().getCookies() || []);
   return domSnapshot;
 }
 
@@ -818,6 +829,7 @@ module.exports.slowScrollToBottom = async (driver, scrollSleep = SCROLL_DEFAULT_
 
 // Internal helpers exported for testing
 module.exports._internals = {
+  filterSensitiveCookies,
   isUnsupportedIframeSrc,
   clampFrameDepth,
   normalizeIgnoreSelectors,
