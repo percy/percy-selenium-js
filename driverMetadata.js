@@ -11,6 +11,12 @@ function withInterceptLock(fn) {
   return run;
 }
 
+// Drop basic-auth userinfo from a hub url. The CLI never uses it and rewrites
+// such urls to https, so mirror that here instead of forwarding the credentials.
+function stripCredentials(url) {
+  return url.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/@]*@/i, 'https://');
+}
+
 class DriverMetadata {
   constructor(driver) {
     this.driver = driver;
@@ -58,7 +64,7 @@ class DriverMetadata {
             const url = req.url.href;
             // only this session's request; other sessions share the global patch
             if (!url.includes(sessionPath)) return;
-            commandExecutorUrl = url.split(sessionPath)[0];
+            commandExecutorUrl = stripCredentials(url.split(sessionPath)[0]);
             markSeen();
           });
           // making a call so we can intercept commandExecutorUrl
@@ -79,5 +85,6 @@ class DriverMetadata {
 }
 
 module.exports = {
-  DriverMetadata
+  DriverMetadata,
+  stripCredentials
 };

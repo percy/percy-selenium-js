@@ -66,6 +66,11 @@ $ percy exec -- node script.js
 - `name` (**required**) - The snapshot name; must be unique to each snapshot
 - `options` - [See per-snapshot configuration options](https://www.browserstack.com/docs/percy/take-percy-snapshots/overview#per-snapshot-configuration)
 
+Browser cookies are sent with each snapshot so Percy can load assets the same way your browser did.
+Cookies whose names look like session or auth credentials (for example `session`, `token`, `auth`,
+`sid`, `jwt`, `csrf`) are left out. If your assets only load with such a cookie, set
+`PERCY_FORWARD_ALL_COOKIES=true` to send every cookie.
+
 ## Upgrading
 
 ### Automatically with `@percy/migrate`

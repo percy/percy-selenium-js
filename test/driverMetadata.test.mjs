@@ -1,5 +1,5 @@
 import http from 'http';
-import { DriverMetadata } from '../driverMetadata.js';
+import { DriverMetadata, stripCredentials } from '../driverMetadata.js';
 import { Cache } from '../cache.js';
 
 describe('DriverMetadata', () => {
@@ -113,6 +113,14 @@ describe('DriverMetadata', () => {
         ).toBeResolvedTo(hub);
       });
 
+      it('drops credentials embedded in the hub url', async () => {
+        const hub = await startHub();
+        const authed = hub.replace('http://', 'http://user:key@');
+        await expectAsync(
+          new DriverMetadata(wdDriver('h', authed)).getCommandExecutorUrl()
+        ).toBeResolvedTo(hub.replace('http://', 'https://'));
+      });
+
       it('ignores requests from other sessions', async () => {
         const [hub, other] = [await startHub(), await startHub()];
         await expectAsync(
@@ -125,6 +133,20 @@ describe('DriverMetadata', () => {
         await expectAsync(new DriverMetadata(wdDriver('f', stuck)).getCommandExecutorUrl()).toBeResolvedTo(stuck);
         await expectAsync(new DriverMetadata(wdDriver('g', hub)).getCommandExecutorUrl()).toBeResolvedTo(hub);
       });
+    });
+  });
+
+  describe('stripCredentials', () => {
+    it('removes userinfo the same way the CLI does', () => {
+      expect(stripCredentials('https://USER:KEY@hub-cloud.browserstack.com/wd/hub'))
+        .toEqual('https://hub-cloud.browserstack.com/wd/hub');
+      expect(stripCredentials('http://user:key@localhost:4444/wd/hub'))
+        .toEqual('https://localhost:4444/wd/hub');
+    });
+
+    it('leaves urls without credentials untouched', () => {
+      expect(stripCredentials('http://localhost:4444/wd/hub')).toEqual('http://localhost:4444/wd/hub');
+      expect(stripCredentials('https://hub.example.com/a@b')).toEqual('https://hub.example.com/a@b');
     });
   });
 });
