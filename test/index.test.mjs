@@ -609,7 +609,7 @@ describe('percySnapshot', () => {
       expect(mockManage.getCookies).toHaveBeenCalled();
     });
 
-    it('leaves session cookies out of the posted snapshot', async () => {
+    it('sends session cookies with the posted snapshot by default', async () => {
       const mockManage = {
         getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve([
           { name: 'JSESSIONID', value: 's', domain: 'example.com' },
@@ -621,11 +621,38 @@ describe('percySnapshot', () => {
       }));
       spyOn(driver, 'manage').and.returnValue(mockManage);
 
-      await percySnapshot(driver, 'Cookie filtering');
+      await percySnapshot(driver, 'Cookie forwarding');
+
+      const requests = await helpers.get('requests', r => r);
+      const snap = requests.find(r => r.url === '/percy/snapshot');
+      expect(snap.body.domSnapshot.cookies.map(c => c.name)).toEqual(['JSESSIONID', 'theme']);
+    });
+
+    it('leaves session cookies out of the posted snapshot when PERCY_EXCLUDE_SENSITIVE_COOKIES is true', async () => {
+      process.env.PERCY_EXCLUDE_SENSITIVE_COOKIES = 'true';
+      const mockManage = {
+        getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve([
+          { name: 'JSESSIONID', value: 's', domain: 'example.com' },
+          { name: 'theme', value: 'dark', domain: 'example.com' }
+        ]))
+      };
+      spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+        domSnapshot: { html: '<html></html>', resources: [] }
+      }));
+      spyOn(driver, 'manage').and.returnValue(mockManage);
+
+      try {
+        await percySnapshot(driver, 'Cookie exclusion');
+      } finally {
+        delete process.env.PERCY_EXCLUDE_SENSITIVE_COOKIES;
+      }
 
       const requests = await helpers.get('requests', r => r);
       const snap = requests.find(r => r.url === '/percy/snapshot');
       expect(snap.body.domSnapshot.cookies.map(c => c.name)).toEqual(['theme']);
+      expect(helpers.logger.stderr).toContain(jasmine.stringMatching(
+        /PERCY_EXCLUDE_SENSITIVE_COOKIES is set: 1 cookie\(s\) .*\(JSESSIONID\) were not sent .*may fail to load/
+      ));
     });
 
     it('should pass all options through async serialization', async () => {
@@ -2479,35 +2506,48 @@ describe('post-switch URL re-check', () => {
   });
 });
 
-describe('filterSensitiveCookies', () => {
-  const { filterSensitiveCookies } = percySnapshot._internals;
+describe('excludeSensitiveCookies', () => {
+  const { excludeSensitiveCookies } = percySnapshot._internals;
+  const cookies = [
+    { name: 'session_id', value: 's' },
+    { name: 'auth_token', value: 'a' },
+    { name: 'XSRF-TOKEN', value: 'x' },
+    { name: '__Secure-sid', value: 'y' },
+    { name: 'theme', value: 'dark' },
+    { name: 'locale', value: 'en' }
+  ];
 
-  afterEach(() => { delete process.env.PERCY_FORWARD_ALL_COOKIES; });
+  beforeEach(async () => { await helpers.setupTest(); });
+  afterEach(() => { delete process.env.PERCY_EXCLUDE_SENSITIVE_COOKIES; });
 
-  it('drops cookies with session or auth like names', () => {
-    const cookies = [
-      { name: 'session_id', value: 's' },
-      { name: 'auth_token', value: 'a' },
-      { name: 'XSRF-TOKEN', value: 'x' },
-      { name: '__Secure-sid', value: 'y' },
-      { name: 'theme', value: 'dark' },
-      { name: 'locale', value: 'en' }
-    ];
-    expect(filterSensitiveCookies(cookies).map(c => c.name)).toEqual(['theme', 'locale']);
+  it('forwards every cookie by default', () => {
+    expect(excludeSensitiveCookies(cookies)).toBe(cookies);
+    expect(helpers.logger.stderr).toEqual([]);
   });
 
-  it('keeps cookies without a name', () => {
-    expect(filterSensitiveCookies([{ value: 'v' }, null])).toEqual([{ value: 'v' }, null]);
+  it('drops cookies with session or auth like names when PERCY_EXCLUDE_SENSITIVE_COOKIES is true', () => {
+    process.env.PERCY_EXCLUDE_SENSITIVE_COOKIES = 'true';
+    expect(excludeSensitiveCookies(cookies).map(c => c.name)).toEqual(['theme', 'locale']);
+  });
+
+  it('logs which cookies were excluded and the impact on asset discovery', () => {
+    process.env.PERCY_EXCLUDE_SENSITIVE_COOKIES = 'true';
+    excludeSensitiveCookies(cookies);
+    expect(helpers.logger.stderr).toEqual([jasmine.stringMatching(
+      /^\[percy\] PERCY_EXCLUDE_SENSITIVE_COOKIES is set: 4 cookie\(s\) with session\/auth-like names \(session_id, auth_token, XSRF-TOKEN, __Secure-sid\) were not sent with the snapshot\. Assets that require an authenticated session may fail to load/
+    )]);
+  });
+
+  it('does not log when the option is set but nothing matched', () => {
+    process.env.PERCY_EXCLUDE_SENSITIVE_COOKIES = 'true';
+    const plain = [{ name: 'theme', value: 'dark' }, { value: 'v' }, null];
+    expect(excludeSensitiveCookies(plain)).toBe(plain);
+    expect(helpers.logger.stderr).toEqual([]);
   });
 
   it('returns non-array values unchanged', () => {
-    expect(filterSensitiveCookies({})).toEqual({});
-  });
-
-  it('forwards every cookie when PERCY_FORWARD_ALL_COOKIES is true', () => {
-    process.env.PERCY_FORWARD_ALL_COOKIES = 'true';
-    const cookies = [{ name: 'session_id', value: 's' }, { name: 'theme', value: 'dark' }];
-    expect(filterSensitiveCookies(cookies)).toEqual(cookies);
+    process.env.PERCY_EXCLUDE_SENSITIVE_COOKIES = 'true';
+    expect(excludeSensitiveCookies({})).toEqual({});
   });
 });
 

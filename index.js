@@ -47,15 +47,21 @@ const {
   HARD_MAX_IFRAME_DEPTH: HARD_MAX_FRAME_DEPTH
 } = utils;
 
-// Cookie names that commonly hold session/auth secrets. These are stripped from
-// snapshot payloads by default so credentials don't leave the tester's machine.
-// Set PERCY_FORWARD_ALL_COOKIES=true to forward the full cookie jar, e.g. when
-// asset discovery needs a session cookie to load authenticated assets.
+// Browser cookies are forwarded with every snapshot so the Percy CLI can load
+// assets behind the same session the test used. Set
+// PERCY_EXCLUDE_SENSITIVE_COOKIES=true to leave out cookies whose names look
+// like session/auth credentials; assets that need those cookies will then
+// fail to load during asset discovery, which is logged so it is not a mystery.
 const SENSITIVE_COOKIE_PATTERN = /session|token|auth|sid|jwt|bearer|csrf|xsrf/i;
 
-function filterSensitiveCookies(cookies) {
-  if (process.env.PERCY_FORWARD_ALL_COOKIES === 'true' || !Array.isArray(cookies)) return cookies;
-  return cookies.filter(cookie => !SENSITIVE_COOKIE_PATTERN.test(cookie?.name || ''));
+function excludeSensitiveCookies(cookies) {
+  if (process.env.PERCY_EXCLUDE_SENSITIVE_COOKIES !== 'true' || !Array.isArray(cookies)) return cookies;
+  const excluded = cookies.filter(cookie => SENSITIVE_COOKIE_PATTERN.test(cookie?.name || ''));
+  if (excluded.length === 0) return cookies;
+  log.warn(`PERCY_EXCLUDE_SENSITIVE_COOKIES is set: ${excluded.length} cookie(s) with session/auth-like names ` +
+    `(${excluded.map(c => c.name).join(', ')}) were not sent with the snapshot. Assets that require ` +
+    'an authenticated session may fail to load during asset discovery and be missing from the snapshot.');
+  return cookies.filter(cookie => !excluded.includes(cookie));
 }
 
 function getOrigin(url) {
@@ -557,7 +563,7 @@ async function captureSerializedDOM(driver, options) {
     log.debug(`Error during cross-origin iframe processing: ${e.message}`);
   }
   /* istanbul ignore next */
-  domSnapshot.cookies = filterSensitiveCookies(await driver.manage().getCookies() || []);
+  domSnapshot.cookies = excludeSensitiveCookies(await driver.manage().getCookies() || []);
   return domSnapshot;
 }
 
@@ -829,7 +835,7 @@ module.exports.slowScrollToBottom = async (driver, scrollSleep = SCROLL_DEFAULT_
 
 // Internal helpers exported for testing
 module.exports._internals = {
-  filterSensitiveCookies,
+  excludeSensitiveCookies,
   isUnsupportedIframeSrc,
   clampFrameDepth,
   normalizeIgnoreSelectors,
