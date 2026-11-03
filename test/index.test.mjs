@@ -1582,6 +1582,41 @@ describe('corsIframes population in captureSerializedDOM', () => {
     expect(entry.iframeSnapshot.resources).toContain(frameResource);
   });
 
+  describe('cookie opt-out', () => {
+    afterEach(() => { delete process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES; });
+
+    function cookieFrameDriver() {
+      return buildIframeDriver({
+        pageUrl: 'https://host.example.com/',
+        topIframes: [m('cookie-pid', 'https://cross.example.com/')],
+        frameSnapshotByPid: {
+          'cookie-pid': { html: '<html><body>frame</body></html>', resources: [], cookies: 'session_id=s; theme=dark' }
+        }
+      });
+    }
+
+    it('keeps the cross-origin frame cookies by default', async () => {
+      await percySnapshot(cookieFrameDriver(), 'frame cookies default');
+
+      const body = await getSnapshotBody();
+      const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+      expect(snap.corsIframes[0].iframeSnapshot.cookies).toBe('session_id=s; theme=dark');
+    });
+
+    it('posts no cross-origin frame cookies when PERCY_DO_NOT_USE_CAPTURED_COOKIES is true', async () => {
+      process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES = 'true';
+
+      await percySnapshot(cookieFrameDriver(), 'frame cookies opt-out');
+
+      const body = await getSnapshotBody();
+      const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+      expect(snap.cookies).toEqual([]);
+      expect(snap.corsIframes.length).toBe(1);
+      expect(snap.corsIframes[0].iframeSnapshot.html).toContain('frame');
+      expect('cookies' in snap.corsIframes[0].iframeSnapshot).toBeFalse();
+    });
+  });
+
   describe('readiness gate', () => {
     // This describe block is nested under `corsIframes population in
     // captureSerializedDOM`, which does not declare a `driver` at its

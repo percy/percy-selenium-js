@@ -562,8 +562,14 @@ async function captureSerializedDOM(driver, options) {
   } catch (e) {
     log.debug(`Error during cross-origin iframe processing: ${e.message}`);
   }
-  /* istanbul ignore next */
-  domSnapshot.cookies = cookiesOptedOut() ? [] : (await driver.manage().getCookies() || []);
+  if (cookiesOptedOut()) {
+    // Each frame's serialized snapshot carries its own document.cookie string.
+    domSnapshot.cookies = [];
+    for (const frame of domSnapshot.corsIframes || []) delete frame.iframeSnapshot.cookies;
+  } else {
+    /* istanbul ignore next */
+    domSnapshot.cookies = await driver.manage().getCookies() || [];
+  }
   return domSnapshot;
 }
 
