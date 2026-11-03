@@ -67,10 +67,10 @@ $ percy exec -- node script.js
 - `options` - [See per-snapshot configuration options](https://www.browserstack.com/docs/percy/take-percy-snapshots/overview#per-snapshot-configuration)
 
 Browser cookies are sent to the Percy CLI with each snapshot, and may be uploaded to Percy, so asset
-discovery can load assets the same way your browser did. To leave out cookies whose names look like
-session or auth credentials (for example `session`, `token`, `auth`, `sid`, `jwt`, `csrf`), set
-`PERCY_EXCLUDE_SENSITIVE_COOKIES=true`. Whenever that excludes a cookie, the SDK logs a warning naming it;
-assets that only load with such a cookie will then fail to load during asset discovery.
+discovery can load assets the same way your browser did (for example, pages behind a login). To stop
+sending them, set `PERCY_DO_NOT_USE_CAPTURED_COOKIES=true`. The SDK then sends no cookies and logs a
+warning once: pages or assets that need a logged-in session may fail to load during asset discovery, so
+snapshots can render incorrectly.
 
 ## Upgrading
 

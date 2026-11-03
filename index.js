@@ -48,20 +48,20 @@ const {
 } = utils;
 
 // Browser cookies are forwarded with every snapshot so the Percy CLI can load
-// assets behind the same session the test used. Set
-// PERCY_EXCLUDE_SENSITIVE_COOKIES=true to leave out cookies whose names look
-// like session/auth credentials; assets that need those cookies will then
-// fail to load during asset discovery, which is logged so it is not a mystery.
-const SENSITIVE_COOKIE_PATTERN = /session|token|auth|sid|jwt|bearer|csrf|xsrf/i;
+// assets behind the same session the test used. PERCY_DO_NOT_USE_CAPTURED_COOKIES
+// is the CLI's own switch for ignoring captured cookies; when it is set the SDK
+// does not send them at all, and warns once about the effect on asset discovery.
+let cookieOptOutWarned = false;
 
-function excludeSensitiveCookies(cookies) {
-  if (process.env.PERCY_EXCLUDE_SENSITIVE_COOKIES !== 'true' || !Array.isArray(cookies)) return cookies;
-  const excluded = cookies.filter(cookie => SENSITIVE_COOKIE_PATTERN.test(cookie?.name || ''));
-  if (excluded.length === 0) return cookies;
-  log.warn(`PERCY_EXCLUDE_SENSITIVE_COOKIES is set: ${excluded.length} cookie(s) with session/auth-like names ` +
-    `(${excluded.map(c => c.name).join(', ')}) were not sent with the snapshot. Assets that require ` +
-    'an authenticated session may fail to load during asset discovery and be missing from the snapshot.');
-  return cookies.filter(cookie => !excluded.includes(cookie));
+function cookiesOptedOut() {
+  if (process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES !== 'true') return false;
+  if (!cookieOptOutWarned) {
+    cookieOptOutWarned = true;
+    log.warn('Not sending browser cookies to Percy because PERCY_DO_NOT_USE_CAPTURED_COOKIES is set. ' +
+      'Pages or assets that need a logged-in session may fail to load during asset discovery, ' +
+      'so snapshots can render incorrectly.');
+  }
+  return true;
 }
 
 function getOrigin(url) {
@@ -563,7 +563,7 @@ async function captureSerializedDOM(driver, options) {
     log.debug(`Error during cross-origin iframe processing: ${e.message}`);
   }
   /* istanbul ignore next */
-  domSnapshot.cookies = excludeSensitiveCookies(await driver.manage().getCookies() || []);
+  domSnapshot.cookies = cookiesOptedOut() ? [] : (await driver.manage().getCookies() || []);
   return domSnapshot;
 }
 
@@ -835,7 +835,8 @@ module.exports.slowScrollToBottom = async (driver, scrollSleep = SCROLL_DEFAULT_
 
 // Internal helpers exported for testing
 module.exports._internals = {
-  excludeSensitiveCookies,
+  cookiesOptedOut,
+  resetCookieOptOutWarning: () => { cookieOptOutWarned = false; },
   isUnsupportedIframeSrc,
   clampFrameDepth,
   normalizeIgnoreSelectors,
