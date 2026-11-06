@@ -66,6 +66,12 @@ $ percy exec -- node script.js
 - `name` (**required**) - The snapshot name; must be unique to each snapshot
 - `options` - [See per-snapshot configuration options](https://www.browserstack.com/docs/percy/take-percy-snapshots/overview#per-snapshot-configuration)
 
+Browser cookies are sent to the Percy CLI with each snapshot, and may be uploaded to Percy, so asset
+discovery can load assets the same way your browser did (for example, pages behind a login). To stop
+sending them, set `PERCY_DO_NOT_USE_CAPTURED_COOKIES=true`. The SDK then sends no cookies and logs a
+warning once: pages or assets that need a logged-in session may fail to load during asset discovery, so
+snapshots can render incorrectly.
+
 ## Upgrading
 
 ### Automatically with `@percy/migrate`
