@@ -14,7 +14,7 @@ function withInterceptLock(fn) {
 // Drop basic-auth userinfo from a hub url. The CLI never uses it and rewrites
 // such urls to https, so mirror that here instead of forwarding the credentials.
 function stripCredentials(url) {
-  return url.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/@]*@/i, 'https://');
+  return url.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#@]*@/i, 'https://');
 }
 
 class DriverMetadata {

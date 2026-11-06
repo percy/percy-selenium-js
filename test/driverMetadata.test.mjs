@@ -147,6 +147,8 @@ describe('DriverMetadata', () => {
     it('leaves urls without credentials untouched', () => {
       expect(stripCredentials('http://localhost:4444/wd/hub')).toEqual('http://localhost:4444/wd/hub');
       expect(stripCredentials('https://hub.example.com/a@b')).toEqual('https://hub.example.com/a@b');
+      expect(stripCredentials('https://hub.example.com?to=a@b')).toEqual('https://hub.example.com?to=a@b');
+      expect(stripCredentials('https://hub.example.com#a@b')).toEqual('https://hub.example.com#a@b');
     });
   });
 });
