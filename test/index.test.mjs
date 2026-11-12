@@ -609,6 +609,107 @@ describe('percySnapshot', () => {
       expect(mockManage.getCookies).toHaveBeenCalled();
     });
 
+    describe('cookie forwarding', () => {
+      const sessionCookies = [
+        { name: 'session_id', value: 's', domain: 'example.com' },
+        { name: 'auth_token', value: 'a', domain: 'example.com' },
+        { name: 'theme', value: 'dark', domain: 'example.com' }
+      ];
+      const optOutWarning = '[percy] Not sending browser cookies to Percy because ' +
+        'PERCY_DO_NOT_USE_CAPTURED_COOKIES is set. Pages or assets that need a logged-in session ' +
+        'may fail to load during asset discovery, so snapshots can render incorrectly.';
+      let mockManage;
+      let inheritedOptOut;
+
+      beforeAll(() => {
+        inheritedOptOut = process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES;
+      });
+
+      afterAll(() => {
+        if (inheritedOptOut !== undefined) process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES = inheritedOptOut;
+      });
+
+      beforeEach(() => {
+        delete process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES;
+        percySnapshot._internals.resetCookieOptOutWarning();
+        mockManage = {
+          getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve(sessionCookies))
+        };
+        spyOn(driver, 'executeScript').and.returnValue(Promise.resolve({
+          domSnapshot: { html: '<html></html>', resources: [] }
+        }));
+        spyOn(driver, 'manage').and.returnValue(mockManage);
+      });
+
+      afterEach(() => {
+        delete process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES;
+        delete process.env.PERCY_FORWARD_ALL_COOKIES;
+      });
+
+      async function postedCookies() {
+        const requests = await helpers.get('requests', r => r);
+        return requests.filter(r => r.url === '/percy/snapshot').map(r => r.body.domSnapshot.cookies);
+      }
+
+      function serializeCallOptions() {
+        return driver.executeScript.calls.allArgs()
+          .map(args => args[1])
+          .find(opts => opts && 'ignoreCanvasSerializationErrors' in opts);
+      }
+
+      it('sends session cookies unchanged by default', async () => {
+        await percySnapshot(driver, 'Cookie forwarding');
+
+        expect(await postedCookies()).toEqual([sessionCookies]);
+        expect(helpers.logger.stderr).not.toContain(optOutWarning);
+      });
+
+      it('sends no cookies and warns once when PERCY_DO_NOT_USE_CAPTURED_COOKIES is true', async () => {
+        process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES = 'true';
+
+        await percySnapshot(driver, 'Cookie opt-out 1');
+        await percySnapshot(driver, 'Cookie opt-out 2');
+
+        expect(await postedCookies()).toEqual([[], []]);
+        expect(mockManage.getCookies).not.toHaveBeenCalled();
+        expect(helpers.logger.stderr.filter(line => line === optOutWarning).length).toBe(1);
+      });
+
+      it('asks the serializer for an object snapshot when cookies are opted out', async () => {
+        process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES = 'true';
+
+        await percySnapshot(driver, 'Cookie opt-out stringify', { stringifyResponse: true, stringify_response: true });
+
+        const serializeOptions = serializeCallOptions();
+        expect(serializeOptions.stringifyResponse).toBeFalse();
+        expect(serializeOptions.stringify_response).toBeFalse();
+        expect(await postedCookies()).toEqual([[]]);
+      });
+
+      it('leaves stringifyResponse alone when cookies are forwarded', async () => {
+        await percySnapshot(driver, 'Cookie forward stringify', { stringifyResponse: true });
+
+        expect(serializeCallOptions().stringifyResponse).toBeTrue();
+      });
+
+      it('still forwards cookies when PERCY_DO_NOT_USE_CAPTURED_COOKIES is not "true"', async () => {
+        process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES = 'false';
+
+        await percySnapshot(driver, 'Cookie opt-out false');
+
+        expect(await postedCookies()).toEqual([sessionCookies]);
+        expect(helpers.logger.stderr).not.toContain(optOutWarning);
+      });
+
+      it('accepts the legacy PERCY_FORWARD_ALL_COOKIES setting and forwards cookies', async () => {
+        process.env.PERCY_FORWARD_ALL_COOKIES = 'true';
+
+        await percySnapshot(driver, 'Cookie legacy forward-all');
+
+        expect(await postedCookies()).toEqual([sessionCookies]);
+      });
+    });
+
     it('should pass all options through async serialization', async () => {
       const customOptions = {
         enableJavaScript: true,
@@ -1512,6 +1613,41 @@ describe('corsIframes population in captureSerializedDOM', () => {
     expect(entry.iframeData).toEqual({ percyElementId: pid });
     expect(entry.iframeSnapshot.html).toContain('frame body');
     expect(entry.iframeSnapshot.resources).toContain(frameResource);
+  });
+
+  describe('cookie opt-out', () => {
+    afterEach(() => { delete process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES; });
+
+    function cookieFrameDriver() {
+      return buildIframeDriver({
+        pageUrl: 'https://host.example.com/',
+        topIframes: [m('cookie-pid', 'https://cross.example.com/')],
+        frameSnapshotByPid: {
+          'cookie-pid': { html: '<html><body>frame</body></html>', resources: [], cookies: 'session_id=s; theme=dark' }
+        }
+      });
+    }
+
+    it('keeps the cross-origin frame cookies by default', async () => {
+      await percySnapshot(cookieFrameDriver(), 'frame cookies default');
+
+      const body = await getSnapshotBody();
+      const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+      expect(snap.corsIframes[0].iframeSnapshot.cookies).toBe('session_id=s; theme=dark');
+    });
+
+    it('posts no cross-origin frame cookies when PERCY_DO_NOT_USE_CAPTURED_COOKIES is true', async () => {
+      process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES = 'true';
+
+      await percySnapshot(cookieFrameDriver(), 'frame cookies opt-out');
+
+      const body = await getSnapshotBody();
+      const snap = Array.isArray(body.domSnapshot) ? body.domSnapshot[0] : body.domSnapshot;
+      expect(snap.cookies).toEqual([]);
+      expect(snap.corsIframes.length).toBe(1);
+      expect(snap.corsIframes[0].iframeSnapshot.html).toContain('frame');
+      expect('cookies' in snap.corsIframes[0].iframeSnapshot).toBeFalse();
+    });
   });
 
   describe('readiness gate', () => {

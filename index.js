@@ -47,6 +47,23 @@ const {
   HARD_MAX_IFRAME_DEPTH: HARD_MAX_FRAME_DEPTH
 } = utils;
 
+// Browser cookies are forwarded with every snapshot so the Percy CLI can load
+// assets behind the same session the test used. PERCY_DO_NOT_USE_CAPTURED_COOKIES
+// is the CLI's own switch for ignoring captured cookies; when it is set the SDK
+// does not send them at all, and warns once about the effect on asset discovery.
+let cookieOptOutWarned = false;
+
+function cookiesOptedOut() {
+  if (process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES !== 'true') return false;
+  if (!cookieOptOutWarned) {
+    cookieOptOutWarned = true;
+    log.warn('Not sending browser cookies to Percy because PERCY_DO_NOT_USE_CAPTURED_COOKIES is set. ' +
+      'Pages or assets that need a logged-in session may fail to load during asset discovery, ' +
+      'so snapshots can render incorrectly.');
+  }
+  return true;
+}
+
 function getOrigin(url) {
   try {
     return new URL(url).origin;
@@ -513,6 +530,11 @@ async function captureSerializedDOM(driver, options) {
     await exposeClosedShadowRoots(driver);
   }
 
+  // Cookies can only be removed from an object snapshot, so when cookies are
+  // opted out the serializer must not return a JSON string (stringifyResponse).
+  const cookiesExcluded = cookiesOptedOut();
+  if (cookiesExcluded) options = { ...options, stringifyResponse: false, stringify_response: false };
+
   /* istanbul ignore next */
   let { domSnapshot } = await driver.executeScript(async (options) => ({
     /* eslint-disable-next-line no-undef */
@@ -545,8 +567,14 @@ async function captureSerializedDOM(driver, options) {
   } catch (e) {
     log.debug(`Error during cross-origin iframe processing: ${e.message}`);
   }
-  /* istanbul ignore next */
-  domSnapshot.cookies = await driver.manage().getCookies() || [];
+  if (cookiesExcluded) {
+    // Each frame's serialized snapshot carries its own document.cookie string.
+    domSnapshot.cookies = [];
+    for (const frame of domSnapshot.corsIframes || []) delete frame.iframeSnapshot.cookies;
+  } else {
+    /* istanbul ignore next */
+    domSnapshot.cookies = await driver.manage().getCookies() || [];
+  }
   return domSnapshot;
 }
 
@@ -818,6 +846,8 @@ module.exports.slowScrollToBottom = async (driver, scrollSleep = SCROLL_DEFAULT_
 
 // Internal helpers exported for testing
 module.exports._internals = {
+  cookiesOptedOut,
+  resetCookieOptOutWarning: () => { cookieOptOutWarned = false; },
   isUnsupportedIframeSrc,
   clampFrameDepth,
   normalizeIgnoreSelectors,
