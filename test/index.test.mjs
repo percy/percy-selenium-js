@@ -619,8 +619,18 @@ describe('percySnapshot', () => {
         'PERCY_DO_NOT_USE_CAPTURED_COOKIES is set. Pages or assets that need a logged-in session ' +
         'may fail to load during asset discovery, so snapshots can render incorrectly.';
       let mockManage;
+      let inheritedOptOut;
+
+      beforeAll(() => {
+        inheritedOptOut = process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES;
+      });
+
+      afterAll(() => {
+        if (inheritedOptOut !== undefined) process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES = inheritedOptOut;
+      });
 
       beforeEach(() => {
+        delete process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES;
         percySnapshot._internals.resetCookieOptOutWarning();
         mockManage = {
           getCookies: jasmine.createSpy('getCookies').and.returnValue(Promise.resolve(sessionCookies))
@@ -641,6 +651,12 @@ describe('percySnapshot', () => {
         return requests.filter(r => r.url === '/percy/snapshot').map(r => r.body.domSnapshot.cookies);
       }
 
+      function serializeCallOptions() {
+        return driver.executeScript.calls.allArgs()
+          .map(args => args[1])
+          .find(opts => opts && 'ignoreCanvasSerializationErrors' in opts);
+      }
+
       it('sends session cookies unchanged by default', async () => {
         await percySnapshot(driver, 'Cookie forwarding');
 
@@ -657,6 +673,23 @@ describe('percySnapshot', () => {
         expect(await postedCookies()).toEqual([[], []]);
         expect(mockManage.getCookies).not.toHaveBeenCalled();
         expect(helpers.logger.stderr.filter(line => line === optOutWarning).length).toBe(1);
+      });
+
+      it('asks the serializer for an object snapshot when cookies are opted out', async () => {
+        process.env.PERCY_DO_NOT_USE_CAPTURED_COOKIES = 'true';
+
+        await percySnapshot(driver, 'Cookie opt-out stringify', { stringifyResponse: true, stringify_response: true });
+
+        const serializeOptions = serializeCallOptions();
+        expect(serializeOptions.stringifyResponse).toBeFalse();
+        expect(serializeOptions.stringify_response).toBeFalse();
+        expect(await postedCookies()).toEqual([[]]);
+      });
+
+      it('leaves stringifyResponse alone when cookies are forwarded', async () => {
+        await percySnapshot(driver, 'Cookie forward stringify', { stringifyResponse: true });
+
+        expect(serializeCallOptions().stringifyResponse).toBeTrue();
       });
 
       it('still forwards cookies when PERCY_DO_NOT_USE_CAPTURED_COOKIES is not "true"', async () => {

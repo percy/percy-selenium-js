@@ -68,7 +68,9 @@ $ percy exec -- node script.js
 
 Browser cookies are sent to the Percy CLI with each snapshot, and may be uploaded to Percy, so asset
 discovery can load assets the same way your browser did (for example, pages behind a login). To stop
-sending them, set `PERCY_DO_NOT_USE_CAPTURED_COOKIES=true`. The SDK then sends no cookies and logs a
+sending them, set `PERCY_DO_NOT_USE_CAPTURED_COOKIES=true` in the environment of the process that runs
+your tests (for example `PERCY_DO_NOT_USE_CAPTURED_COOKIES=true percy exec -- node script.js`); setting it
+only on a separately started `percy exec:start` process is not enough. The SDK then sends no cookies and logs a
 warning once: pages or assets that need a logged-in session may fail to load during asset discovery, so
 snapshots can render incorrectly.
 

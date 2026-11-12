@@ -530,6 +530,11 @@ async function captureSerializedDOM(driver, options) {
     await exposeClosedShadowRoots(driver);
   }
 
+  // Cookies can only be removed from an object snapshot, so when cookies are
+  // opted out the serializer must not return a JSON string (stringifyResponse).
+  const cookiesExcluded = cookiesOptedOut();
+  if (cookiesExcluded) options = { ...options, stringifyResponse: false, stringify_response: false };
+
   /* istanbul ignore next */
   let { domSnapshot } = await driver.executeScript(async (options) => ({
     /* eslint-disable-next-line no-undef */
@@ -562,7 +567,7 @@ async function captureSerializedDOM(driver, options) {
   } catch (e) {
     log.debug(`Error during cross-origin iframe processing: ${e.message}`);
   }
-  if (cookiesOptedOut()) {
+  if (cookiesExcluded) {
     // Each frame's serialized snapshot carries its own document.cookie string.
     domSnapshot.cookies = [];
     for (const frame of domSnapshot.corsIframes || []) delete frame.iframeSnapshot.cookies;
